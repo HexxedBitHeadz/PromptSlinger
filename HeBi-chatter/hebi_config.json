@@ -1,0 +1,9 @@
+{
+  "tag_labels": {
+    "FINDING": "A",
+    "HINT": "B",
+    "INFO": "C",
+    "CONFIRMED": "D",
+    "NOISE": "E"
+  }
+}

@@ -42,7 +42,7 @@ C:\Users\devin\Desktop\osai-300\HeBi-chatter-burp\target\hebi-chatter-burp-1.0.0
 2. Go to the **Extensions** tab (top navigation bar).
 3. Click **Add** in the Installed Extensions panel.
 4. Set **Extension type** to `Java`.
-5. Click **Select file** and choose `target/hebi-chatter-burp-1.0.0.jar`.
+5. Click **Select file** and choose `target/promptslinger-1.0.0.jar`.
 6. Click **Next**.
 
 If the extension loaded successfully you will see:

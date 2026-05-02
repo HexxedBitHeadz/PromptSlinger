@@ -5,6 +5,7 @@ import burp.api.montoya.MontoyaApi;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.promptslinger.burp.PSPanel.*;
@@ -22,6 +23,8 @@ public class HistoryPanel extends JPanel {
     private JTextField                     noteEntry;
     JButton                                loadBtn;
     private JLabel[]                       markChips;
+    private JTextField                     searchField;
+    private List<HistoryEntry>             allEntries = new ArrayList<>();
 
     public HistoryPanel(MontoyaApi api, HistoryStore store, PSPanel owner) {
         this.api   = api;
@@ -39,12 +42,58 @@ public class HistoryPanel extends JPanel {
         header.setBackground(BG);
         header.setBorder(BorderFactory.createEmptyBorder(10, 10, 4, 10));
 
-        JLabel title = new JLabel("History  (newest first)");
+        // Row 1: title
+        JLabel title = new JLabel("History");
         title.setFont(new Font("Monospaced", Font.BOLD, BASE_SIZE));
         title.setForeground(ACCENT);
         header.add(title, BorderLayout.NORTH);
 
-        JPanel chips = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
+        // Row 2–4 stacked in SOUTH
+        JPanel subHeader = new JPanel();
+        subHeader.setLayout(new BoxLayout(subHeader, BoxLayout.Y_AXIS));
+        subHeader.setBackground(BG);
+
+        // Tool buttons row
+        JPanel toolBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        toolBtns.setBackground(BG);
+
+        JButton alertsBtn = headerBtn("Alerts", ORANGE);
+        alertsBtn.addActionListener(e -> new KeywordAlertDialog(this).setVisible(true));
+
+        JButton exportBtn = headerBtn("Export", GREEN);
+        exportBtn.addActionListener(e -> new ExportDialog(this, store).setVisible(true));
+
+        JButton diffBtn = headerBtn("Diff", PINK);
+        diffBtn.addActionListener(e -> {
+            HistoryEntry sel = histList.getSelectedValue();
+            new DiffDialog(this, store, sel).setVisible(true);
+        });
+
+        toolBtns.add(alertsBtn);
+        toolBtns.add(exportBtn);
+        toolBtns.add(diffBtn);
+        subHeader.add(toolBtns);
+
+        // Search bar
+        searchField = new JTextField();
+        searchField.setBackground(ENTRY_BG);
+        searchField.setForeground(FG);
+        searchField.setCaretColor(FG);
+        searchField.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(SURFACE, 1),
+                BorderFactory.createEmptyBorder(3, 6, 3, 6)));
+        searchField.putClientProperty("JTextField.placeholderText", "Search history...");
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { applyFilter(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { applyFilter(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {}
+        });
+        searchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, searchField.getPreferredSize().height));
+        subHeader.add(searchField);
+
+        // Mark chips row
+        JPanel chips = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
         chips.setBackground(BG);
         markChips = new JLabel[MARK_KEYS.length];
         for (int i = 0; i < MARK_KEYS.length; i++) {
@@ -64,7 +113,9 @@ public class HistoryPanel extends JPanel {
             markChips[i] = chip;
             chips.add(chip);
         }
-        header.add(chips, BorderLayout.SOUTH);
+        subHeader.add(chips);
+
+        header.add(subHeader, BorderLayout.SOUTH);
         add(header, BorderLayout.NORTH);
 
         listModel = new DefaultListModel<>();
@@ -191,23 +242,33 @@ public class HistoryPanel extends JPanel {
     // ── List population ────────────────────────────────────────────────────────
 
     public void refresh() {
+        allEntries.clear();
+        allEntries.addAll(store.getEntries()); // store inserts at index 0, so newest is first
+        applyFilter();
+    }
+
+    private void applyFilter() {
         int selected = histList.getSelectedIndex();
+        String query = searchField != null ? searchField.getText().trim().toLowerCase() : "";
         listModel.clear();
-        List<HistoryEntry> entries = store.getEntries();
-        for (int i = entries.size() - 1; i >= 0; i--) {
-            listModel.addElement(entries.get(i));
+        for (HistoryEntry e : allEntries) {
+            if (query.isEmpty() || matchesSearch(e, query)) listModel.addElement(e);
         }
-        if (selected >= 0 && selected < listModel.size()) {
-            histList.setSelectedIndex(selected);
-        } else if (!listModel.isEmpty()) {
-            histList.setSelectedIndex(0);
-        }
+        if (selected >= 0 && selected < listModel.size()) histList.setSelectedIndex(selected);
+        else if (!listModel.isEmpty()) histList.setSelectedIndex(0);
+    }
+
+    private boolean matchesSearch(HistoryEntry e, String q) {
+        return (e.message  != null && e.message.toLowerCase().contains(q))
+            || (e.response != null && e.response.toLowerCase().contains(q))
+            || (e.note     != null && e.note.toLowerCase().contains(q));
     }
 
     private String formatLabel(HistoryEntry e) {
+        String latency = e.latencyMs > 0 ? "  " + e.latencyMs + "ms" : "";
         String preview = e.message == null ? "" : e.message.replace("\n", " ");
-        if (preview.length() > 30) preview = preview.substring(0, 30) + "…";
-        return "  " + e.timestamp + "  " + preview;
+        if (preview.length() > 28) preview = preview.substring(0, 28) + "…";
+        return "  " + e.timestamp + latency + "  " + preview;
     }
 
     // ── Selection display ──────────────────────────────────────────────────────
@@ -331,6 +392,17 @@ public class HistoryPanel extends JPanel {
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    private static JButton headerBtn(String text, Color fg) {
+        JButton b = new JButton(text);
+        b.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 3, 9)));
+        b.setBackground(SURFACE);
+        b.setForeground(fg);
+        b.setFocusPainted(false);
+        b.setBorderPainted(false);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return b;
+    }
 
     private static String markToBurpColour(String mark) {
         if (mark == null) return "none";

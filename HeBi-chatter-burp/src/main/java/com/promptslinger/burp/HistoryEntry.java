@@ -10,8 +10,9 @@ public class HistoryEntry {
     public String url;
     public String message;
     public String response;
-    public String mark;   // null | FINDING | HINT | INFO | CONFIRMED | NOISE
+    public String mark;       // null | FINDING | HINT | INFO | CONFIRMED | NOISE
     public String note;
+    public long   latencyMs;  // round-trip ms, 0 if unknown
 
     /** Original proxy item â€” kept in memory only, used to set Burp highlight/notes. */
     @JsonIgnore

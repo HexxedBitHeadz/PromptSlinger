@@ -24,7 +24,7 @@ public class DecodeWindow extends JFrame {
     private record DecoderEntry(String label, ThrowingFn fn) {}
 
     public DecodeWindow(String responseText, String activeModifierKey) {
-        super("Decode Response — HeBi-Chatter");
+        super("Decode Response — PromptSlinger");
         currentText = new String[]{responseText};
 
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);

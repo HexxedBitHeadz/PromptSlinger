@@ -33,11 +33,12 @@ public class HeBiPanel extends JPanel {
     static final Color ORANGE    = new Color(0xffb86c);
     static final Color PINK      = new Color(0xff79c6);
 
-    static final Font MONO       = new Font("Monospaced", Font.PLAIN, 11);
-    static final Font MONO_BOLD  = new Font("Monospaced", Font.BOLD,  12);
+    static int  BASE_SIZE = 13;
+    static Font MONO      = new Font("Monospaced", Font.PLAIN,  BASE_SIZE);
+    static Font MONO_BOLD = new Font("Monospaced", Font.BOLD,   BASE_SIZE);
 
-    // Mark colours — must match HistoryWindow.MARK_COLORS
-    static final String[] MARK_KEYS   = {"FINDING", "HINT", "INFO", "CONFIRMED", "NOISE"};
+    // Mark labels — mutable so users can rename them; persisted to ~/.promptslinger/mark_names.txt
+    static String[] MARK_KEYS = {"FINDING", "HINT", "INFO", "CONFIRMED", "NOISE"};
     static final Color[]  MARK_BG     = {
         new Color(0xff5555), new Color(0xf1fa8c), new Color(0x8be9fd),
         new Color(0x50fa7b), new Color(0x6272a4)
@@ -58,6 +59,35 @@ public class HeBiPanel extends JPanel {
     // Currently selected modifier key, or null
     private String activeModifier = null;
 
+    // Active send thread — non-null while a request is in flight
+    private Thread activeWorker = null;
+
+    // Inline history side panel
+    private HistoryPanel historyPanel;
+    private JSplitPane   mainSplit;
+    private JButton      histToggleBtn;
+    private static final int HISTORY_WIDTH = 380;
+
+    private static final java.nio.file.Path MARK_NAMES_FILE =
+        java.nio.file.Paths.get(System.getProperty("user.home"), ".promptslinger", "mark_names.txt");
+
+    static void saveMarkNames() {
+        try {
+            java.nio.file.Files.createDirectories(MARK_NAMES_FILE.getParent());
+            java.nio.file.Files.writeString(MARK_NAMES_FILE, String.join("\n", MARK_KEYS));
+        } catch (Exception ignored) {}
+    }
+
+    static void loadMarkNames() {
+        try {
+            if (java.nio.file.Files.exists(MARK_NAMES_FILE)) {
+                String[] loaded = java.nio.file.Files.readString(MARK_NAMES_FILE).split("\n", -1);
+                for (int i = 0; i < Math.min(loaded.length, MARK_KEYS.length); i++)
+                    if (!loaded[i].isBlank()) MARK_KEYS[i] = loaded[i].trim();
+            }
+        } catch (Exception ignored) {}
+    }
+
     // ── UI components ─────────────────────────────────────────────────────────
     private JLabel     endpointLabel;
     private JLabel     sessionLabel;
@@ -74,6 +104,11 @@ public class HeBiPanel extends JPanel {
     public HeBiPanel(MontoyaApi api, HistoryStore store) {
         this.api   = api;
         this.store = store;
+        loadMarkNames();
+        Font lf = UIManager.getFont("Label.font");
+        BASE_SIZE = (lf != null) ? lf.getSize() : 13;
+        MONO      = new Font("Monospaced", Font.PLAIN, BASE_SIZE);
+        MONO_BOLD = new Font("Monospaced", Font.BOLD,  BASE_SIZE);
         setLayout(new BorderLayout(0, 0));
         setBackground(BG);
         buildUI();
@@ -107,14 +142,28 @@ public class HeBiPanel extends JPanel {
         JPanel topBar = panel(BG, new BorderLayout(0, 4));
         topBar.setBorder(BorderFactory.createEmptyBorder(10, 14, 6, 14));
 
-        JLabel title = new JLabel("HeBi-Chatter");
-        title.setFont(new Font("Monospaced", Font.BOLD, 15));
+        JPanel titleRow = panel(BG, new BorderLayout());
+        JPanel titleStack = panel(BG, new BorderLayout(0, 1));
+        JLabel title = new JLabel("PromptSlinger");
+        title.setFont(new Font("Monospaced", Font.BOLD, BASE_SIZE + 2));
         title.setForeground(ACCENT);
-        topBar.add(title, BorderLayout.NORTH);
+        JLabel byline = new JLabel("  drawn & coded by Hexxed BitHeadz");
+        byline.setFont(new Font("Monospaced", Font.ITALIC, Math.max(BASE_SIZE - 3, 9)));
+        byline.setForeground(MUTED);
+        titleStack.add(title,  BorderLayout.NORTH);
+        titleStack.add(byline, BorderLayout.SOUTH);
+        titleRow.add(titleStack, BorderLayout.WEST);
+
+        histToggleBtn = smallButton("◀ History");
+        histToggleBtn.setForeground(ACCENT);
+        histToggleBtn.addActionListener(e -> toggleHistoryPanel());
+        titleRow.add(histToggleBtn, BorderLayout.EAST);
+
+        topBar.add(titleRow, BorderLayout.NORTH);
 
         JPanel metaRow = panel(BG, new GridLayout(2, 1, 0, 3));
 
-        endpointLabel = new JLabel("No request loaded — right-click a request → Send to HeBi-Chatter");
+        endpointLabel = new JLabel("No request loaded — right-click a request → Send to PromptSlinger");
         endpointLabel.setFont(MONO);
         endpointLabel.setForeground(MUTED);
         metaRow.add(endpointLabel);
@@ -136,7 +185,7 @@ public class HeBiPanel extends JPanel {
 
         fieldRow.add(Box.createHorizontalStrut(20));
         sessionLabel = new JLabel("Session ID: none");
-        sessionLabel.setFont(new Font("Monospaced", Font.PLAIN, 10));
+        sessionLabel.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE - 1));
         sessionLabel.setForeground(MUTED);
         fieldRow.add(sessionLabel);
         fieldRow.add(Box.createHorizontalStrut(6));
@@ -183,7 +232,7 @@ public class HeBiPanel extends JPanel {
             JCheckBox cb = new JCheckBox(m.label());
             cb.setBackground(BG);
             cb.setForeground(MUTED);
-            cb.setFont(new Font("Monospaced", Font.PLAIN, 10));
+            cb.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE - 1));
             cb.setFocusPainted(false);
             final String key = m.key();
             cb.addActionListener(e -> toggleModifier(key));
@@ -208,10 +257,6 @@ public class HeBiPanel extends JPanel {
         JButton decodeBtn = actionButton("Decode",  ORANGE);
         decodeBtn.addActionListener(e -> openDecodeWindow());
         btnBar.add(decodeBtn);
-
-        JButton histBtn = actionButton("History", ACCENT);
-        histBtn.addActionListener(e -> openHistoryWindow());
-        btnBar.add(histBtn);
 
         JButton copyBtn = actionButton("Copy Response", FG);
         copyBtn.addActionListener(e -> copyResponse());
@@ -252,12 +297,35 @@ public class HeBiPanel extends JPanel {
         split.setTopComponent(topHalf);
         split.setBottomComponent(responsePanel);
 
-        add(split, BorderLayout.CENTER);
+        historyPanel = new HistoryPanel(api, store, this);
+        historyPanel.setMinimumSize(new Dimension(0, 0));
+
+        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        mainSplit.setBackground(BG);
+        mainSplit.setBorder(null);
+        mainSplit.setDividerSize(5);
+        mainSplit.setLeftComponent(historyPanel);
+        mainSplit.setRightComponent(split);
+        mainSplit.setDividerLocation(HISTORY_WIDTH);
+
+        add(mainSplit, BorderLayout.CENTER);
     }
 
     // ── Send logic ────────────────────────────────────────────────────────────
 
+    private void resetSendButton() {
+        activeWorker = null;
+        sendBtn.setText("Send");
+        sendBtn.setBackground(ACCENT);
+        sendBtn.setForeground(BG);
+        sendBtn.setEnabled(currentRequest != null);
+    }
+
     private void sendRequest() {
+        if (activeWorker != null) {
+            activeWorker.interrupt();
+            return;
+        }
         if (currentRequest == null) {
             showError("No request loaded.");
             return;
@@ -275,8 +343,10 @@ public class HeBiPanel extends JPanel {
 
         String finalMessage = ModifierUtil.applyModifier(rawMessage, activeModifier);
 
-        sendBtn.setEnabled(false);
-        sendBtn.setText("Sending…");
+        sendBtn.setText("✕ Cancel");
+        sendBtn.setBackground(RED);
+        sendBtn.setForeground(FG);
+        sendBtn.setEnabled(true);
         showInfo("POST " + currentRequest.url() + "\n\nWaiting…");
 
         final String capturedMessage = rawMessage;
@@ -295,6 +365,11 @@ public class HeBiPanel extends JPanel {
 
                 HttpRequest modified = currentRequest.withBody(mapper.writeValueAsString(on));
                 HttpRequestResponse result = api.http().sendRequest(modified);
+
+                if (Thread.currentThread().isInterrupted()) {
+                    SwingUtilities.invokeLater(() -> { showInfo("Request cancelled."); resetSendButton(); });
+                    return;
+                }
 
                 String rawResp = result.response() != null
                         ? result.response().bodyToString() : "(no response body)";
@@ -332,19 +407,19 @@ public class HeBiPanel extends JPanel {
                     lastResponseText = pr;
                     if (newSess != null) updateSession(newSess);
                     renderResponse(parsedFinal, displayText);
-                    sendBtn.setEnabled(true);
-                    sendBtn.setText("Send");
+                    resetSendButton();
+                    if (mainSplit.getDividerLocation() > 10) historyPanel.refresh();
                 });
 
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> {
                     showError("Error: " + ex.getMessage());
-                    sendBtn.setEnabled(true);
-                    sendBtn.setText("Send");
+                    resetSendButton();
                 });
             }
-        }, "hebi-send");
+        }, "promptslinger-send");
         worker.setDaemon(true);
+        activeWorker = worker;
         worker.start();
     }
 
@@ -354,7 +429,7 @@ public class HeBiPanel extends JPanel {
         StyledDocument doc = responsePane.getStyledDocument();
         Style base = doc.addStyle("base", null);
         StyleConstants.setFontFamily(base, "Monospaced");
-        StyleConstants.setFontSize(base, 11);
+        StyleConstants.setFontSize(base, BASE_SIZE);
         StyleConstants.setForeground(base, FG);
 
         keyStyle       = doc.addStyle("key",       base); StyleConstants.setForeground(keyStyle,       ACCENT);
@@ -363,14 +438,14 @@ public class HeBiPanel extends JPanel {
         boolStyle      = doc.addStyle("bool",      base); StyleConstants.setForeground(boolStyle,      PINK);
         labelStyle     = doc.addStyle("lbl",       base);
         StyleConstants.setForeground(labelStyle, MUTED);
-        StyleConstants.setFontSize(labelStyle, 9);
+        StyleConstants.setFontSize(labelStyle, BASE_SIZE - 2);
         prominentStyle = doc.addStyle("prom",      base);
         StyleConstants.setForeground(prominentStyle, FG);
-        StyleConstants.setFontSize(prominentStyle, 12);
+        StyleConstants.setFontSize(prominentStyle, BASE_SIZE + 1);
         separatorStyle = doc.addStyle("sep",       base); StyleConstants.setForeground(separatorStyle, new Color(0x44475a));
         mutedStyle     = doc.addStyle("muted",     base);
         StyleConstants.setForeground(mutedStyle, MUTED);
-        StyleConstants.setFontSize(mutedStyle, 9);
+        StyleConstants.setFontSize(mutedStyle, BASE_SIZE - 2);
     }
 
     private static final Pattern P_KEY  = Pattern.compile("\"(?:[^\"\\\\]|\\\\.)*\"(?=\\s*:)");
@@ -466,6 +541,9 @@ public class HeBiPanel extends JPanel {
     }
 
     private void clearAll() {
+        if (activeWorker != null) {
+            activeWorker.interrupt();
+        }
         messageArea.setText("");
         clearSession();
         for (JCheckBox cb : modifierBoxes) cb.setSelected(false);
@@ -482,8 +560,15 @@ public class HeBiPanel extends JPanel {
         new DecodeWindow(lastResponseText, activeModifier).setVisible(true);
     }
 
-    private void openHistoryWindow() {
-        new HistoryWindow(api, store, this).setVisible(true);
+    private void toggleHistoryPanel() {
+        if (mainSplit.getDividerLocation() > 10) {
+            mainSplit.setDividerLocation(0);
+            histToggleBtn.setText("▶ History");
+        } else {
+            historyPanel.refresh();
+            mainSplit.setDividerLocation(HISTORY_WIDTH);
+            histToggleBtn.setText("◀ History");
+        }
     }
 
     // ── Info / error display in response pane ─────────────────────────────────
@@ -553,7 +638,7 @@ public class HeBiPanel extends JPanel {
         JButton b = new JButton(text);
         b.setBackground(new Color(0x313244));
         b.setForeground(FG);
-        b.setFont(new Font("Monospaced", Font.PLAIN, 10));
+        b.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE - 1));
         b.setFocusPainted(false);
         b.setBorderPainted(false);
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));

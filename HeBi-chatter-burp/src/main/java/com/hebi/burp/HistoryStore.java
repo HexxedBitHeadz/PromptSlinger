@@ -22,7 +22,7 @@ public class HistoryStore {
 
     public HistoryStore(File storageDir) {
         storageDir.mkdirs();
-        this.file = new File(storageDir, "hebi_history.json");
+        this.file = new File(storageDir, "promptslinger_history.json");
         load();
     }
 

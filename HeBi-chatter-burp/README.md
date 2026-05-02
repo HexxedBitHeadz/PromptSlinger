@@ -1,6 +1,6 @@
-# HeBi-Chatter — BurpSuite Extension
+# PromptSlinger — BurpSuite Extension
 
-A BurpSuite extension for testing AI chatbot endpoints. Capture a real request (including all auth headers, cookies, and session tokens) directly from Burp's Proxy or Repeater, then use HeBi-Chatter to probe the chatbot with custom messages, output modifiers, color-coded findings, and response decoding — without ever manually configuring headers.
+A BurpSuite extension for testing AI chatbot endpoints. Capture a real request (including all auth headers, cookies, and session tokens) directly from Burp's Proxy or Repeater, then use PromptSlinger to probe the chatbot with custom messages, output modifiers, color-coded findings, and response decoding — without ever manually configuring headers.
 
 ---
 
@@ -16,17 +16,23 @@ A BurpSuite extension for testing AI chatbot endpoints. Capture a real request (
 
 Clone or download this repository, then build the fat JAR:
 
+**Linux (dnf):**
+
 ```bash
 cd HeBi-chatter-burp
 sudo dnf install maven
 mvn clean package
 ```
 
-The output JAR will be at:
+**Windows (ubuntu wsl):**
+ubuntu
+sudo apt install maven -y
+cd /mnt/c/Users/devin/Desktop/osai-300/HeBi-chatter-burp
+mvn clean package
 
-```
-target/hebi-chatter-burp-1.0.0.jar
-```
+That's it. The JAR lands at the Windows path:
+C:\Users\devin\Desktop\osai-300\HeBi-chatter-burp\target\hebi-chatter-burp-1.0.0.jar
+
 
 ---
 
@@ -41,8 +47,8 @@ target/hebi-chatter-burp-1.0.0.jar
 
 If the extension loaded successfully you will see:
 
-- `HeBi-Chatter loaded.` in the **Output** tab of the extension.
-- A new **HeBi-Chatter** tab appear in the BurpSuite top navigation bar.
+- `PromptSlinger loaded.` in the **Output** tab of the extension.
+- A new **PromptSlinger** tab appear in the BurpSuite top navigation bar.
 
 ---
 
@@ -53,11 +59,11 @@ If the extension loaded successfully you will see:
 1. Browse to the target chatbot in your browser with Burp's proxy intercepting traffic.
 2. Send a message to the chatbot so Burp captures the full request (including auth headers, session cookies, CSRF tokens, etc.).
 3. In **Proxy → HTTP history** (or in **Repeater**), right-click the captured request.
-4. Select **Send to HeBi-Chatter**.
+4. Select **Send to PromptSlinger**.
 
 ### Step 2 — Send probes
 
-1. Click the **HeBi-Chatter** tab in BurpSuite.
+1. Click the **PromptSlinger** tab in BurpSuite.
 2. The endpoint URL is shown at the top. The **Message field** is auto-detected from the request body (e.g. `message`, `prompt`, `query`) — adjust it if needed.
 3. Type your probe in the **Message** box.
 4. Optionally select an **Output modifier** to instruct the model to encode its response (ROT13, Base64, Hex, Reverse, Spell-out, Spanish).
@@ -108,7 +114,7 @@ HeBi-chatter-burp/
 ├── pom.xml
 └── src/main/java/com/hebi/burp/
     ├── HeBiExtension.java      # Extension entry point
-    ├── HeBiContextMenu.java    # Right-click "Send to HeBi-Chatter"
+    ├── HeBiContextMenu.java    # Right-click "Send to PromptSlinger"
     ├── HeBiPanel.java          # Main UI tab
     ├── HistoryWindow.java      # History pop-up
     ├── DecodeWindow.java       # Decode pop-up

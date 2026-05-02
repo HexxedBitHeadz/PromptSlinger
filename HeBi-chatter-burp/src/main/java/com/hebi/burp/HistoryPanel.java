@@ -10,9 +10,8 @@ import java.util.List;
 
 import static com.hebi.burp.HeBiPanel.*;
 
-public class HistoryWindow extends JFrame {
+public class HistoryPanel extends JPanel {
 
-    // Maps our mark keys to Burp HighlightColor so proxy history also gets coloured
     private static final HighlightColor[] BURP_COLORS = {
         HighlightColor.RED, HighlightColor.YELLOW, HighlightColor.CYAN,
         HighlightColor.GREEN, HighlightColor.GRAY
@@ -22,6 +21,7 @@ public class HistoryWindow extends JFrame {
     private final HistoryStore store;
     private final HeBiPanel    mainPanel;
 
+    private JLabel[]                 markChips;
     private DefaultListModel<String> listModel;
     private JList<String>            entryList;
     private JTextArea                msgView;
@@ -31,74 +31,78 @@ public class HistoryWindow extends JFrame {
 
     private int currentIdx = -1;
 
-    public HistoryWindow(MontoyaApi api, HistoryStore store, HeBiPanel mainPanel) {
-        super("Message History — PromptSlinger");
+    public HistoryPanel(MontoyaApi api, HistoryStore store, HeBiPanel mainPanel) {
         this.api       = api;
         this.store     = store;
         this.mainPanel = mainPanel;
-
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
-        setSize(screen.width / 2, (int)(screen.height * 0.9));
-        setLocationRelativeTo(null);
-        getContentPane().setBackground(BG);
         setLayout(new BorderLayout(0, 0));
-
+        setBackground(BG);
         buildUI();
         populateList();
+    }
+
+    public void refresh() {
+        int prevIdx = currentIdx;
+        populateList();
+        if (prevIdx >= 0 && prevIdx < store.getEntries().size())
+            entryList.setSelectedIndex(prevIdx);
     }
 
     // ── UI construction ───────────────────────────────────────────────────────
 
     private void buildUI() {
-        // ── Title + legend ────────────────────────────────────────────────────
         JPanel top = new JPanel(new BorderLayout(0, 4));
         top.setBackground(BG);
-        top.setBorder(BorderFactory.createEmptyBorder(10, 14, 6, 14));
+        top.setBorder(BorderFactory.createEmptyBorder(10, 10, 6, 10));
 
         JLabel title = new JLabel("History  (newest first)");
-        title.setFont(new Font("Monospaced", Font.BOLD, 13));
+        title.setFont(new Font("Monospaced", Font.BOLD, BASE_SIZE));
         title.setForeground(ACCENT);
         top.add(title, BorderLayout.NORTH);
 
-        JPanel legend = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel legend = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         legend.setBackground(BG);
-        legend.add(label("Tags:", MUTED));
+        markChips = new JLabel[MARK_KEYS.length];
         for (int i = 0; i < MARK_KEYS.length; i++) {
-            JLabel chip = new JLabel("  " + MARK_KEYS[i] + "  ");
+            JLabel chip = new JLabel(" " + MARK_KEYS[i] + " ");
             chip.setBackground(MARK_BG[i]);
             chip.setForeground(MARK_FG[i]);
-            chip.setFont(new Font("Monospaced", Font.BOLD, 9));
+            chip.setFont(new Font("Monospaced", Font.BOLD, Math.max(BASE_SIZE - 3, 9)));
             chip.setOpaque(true);
+            chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            chip.setToolTipText("Double-click to rename");
+            final int fi = i;
+            chip.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                    if (e.getClickCount() == 2) renameLabel(fi);
+                }
+            });
+            markChips[i] = chip;
             legend.add(chip);
         }
         top.add(legend, BorderLayout.CENTER);
         add(top, BorderLayout.NORTH);
 
-        // ── Bottom bar ────────────────────────────────────────────────────────
         JPanel bottomBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
         bottomBar.setBackground(BG);
-
-        JButton clearAll = new JButton("Clear All History");
-        clearAll.setBackground(BG);
-        clearAll.setForeground(RED);
-        clearAll.setFont(new Font("Monospaced", Font.PLAIN, 10));
-        clearAll.setFocusPainted(false);
-        clearAll.setBorderPainted(false);
-        clearAll.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        clearAll.addActionListener(e -> clearAll());
-        bottomBar.add(clearAll);
+        JButton clearAllBtn = new JButton("Clear All History");
+        clearAllBtn.setBackground(BG);
+        clearAllBtn.setForeground(RED);
+        clearAllBtn.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        clearAllBtn.setFocusPainted(false);
+        clearAllBtn.setBorderPainted(false);
+        clearAllBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        clearAllBtn.addActionListener(e -> clearAll());
+        bottomBar.add(clearAllBtn);
         add(bottomBar, BorderLayout.SOUTH);
 
-        // ── Split pane ────────────────────────────────────────────────────────
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         split.setBackground(BG);
         split.setBorder(null);
-        split.setDividerSize(5);
-        split.setDividerLocation(260);
-
-        split.setLeftComponent(buildListPanel());
-        split.setRightComponent(buildDetailPanel());
+        split.setDividerSize(4);
+        split.setResizeWeight(0.35);
+        split.setTopComponent(buildListPanel());
+        split.setBottomComponent(buildDetailPanel());
         add(split, BorderLayout.CENTER);
     }
 
@@ -120,7 +124,6 @@ public class HistoryWindow extends JFrame {
                 showEntry(entryList.getSelectedIndex());
         });
 
-        // Right-click mark menu
         entryList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mousePressed(java.awt.event.MouseEvent e) {
                 if (SwingUtilities.isRightMouseButton(e)) {
@@ -148,36 +151,30 @@ public class HistoryWindow extends JFrame {
         g.weightx = 1.0;
         g.insets = new Insets(2, 0, 2, 0);
 
-        // MESSAGE label
         g.gridy = 0; g.weighty = 0;
-        p.add(label("MESSAGE", MUTED), g);
+        p.add(sectionLabel("MESSAGE"), g);
 
-        // Message view
-        msgView = readOnlyArea(ENTRY_BG, FG, 4);
-        g.gridy = 1; g.weighty = 0.25;
+        msgView = readOnlyArea(ENTRY_BG, FG, 3);
+        g.gridy = 1; g.weighty = 0.2;
         p.add(new JScrollPane(msgView), g);
 
-        // RESPONSE label
         g.gridy = 2; g.weighty = 0;
-        p.add(label("RESPONSE", MUTED), g);
+        p.add(sectionLabel("RESPONSE"), g);
 
-        // Response view
-        respView = readOnlyArea(SURFACE, GREEN, 10);
+        respView = readOnlyArea(SURFACE, GREEN, 8);
         g.gridy = 3; g.weighty = 0.55;
         p.add(new JScrollPane(respView), g);
 
-        // NOTE label
         g.gridy = 4; g.weighty = 0;
         JPanel noteHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         noteHeader.setBackground(BG);
-        noteHeader.add(label("NOTE", MUTED));
+        noteHeader.add(sectionLabel("NOTE"));
         JLabel autoSaved = new JLabel("  (auto-saved)");
-        autoSaved.setFont(new Font("Monospaced", Font.ITALIC, 9));
+        autoSaved.setFont(new Font("Monospaced", Font.ITALIC, Math.max(BASE_SIZE - 3, 9)));
         autoSaved.setForeground(new Color(0x44475a));
         noteHeader.add(autoSaved);
         p.add(noteHeader, g);
 
-        // Note entry
         noteEntry = new JTextArea(2, 40);
         noteEntry.setBackground(ENTRY_BG);
         noteEntry.setForeground(new Color(0xf1fa8c));
@@ -194,7 +191,6 @@ public class HistoryWindow extends JFrame {
         g.gridy = 5; g.weighty = 0.1;
         p.add(new JScrollPane(noteEntry), g);
 
-        // Load button
         loadBtn = new JButton("Load message into input →");
         loadBtn.setBackground(ACCENT);
         loadBtn.setForeground(BG);
@@ -207,7 +203,6 @@ public class HistoryWindow extends JFrame {
         g.anchor = GridBagConstraints.CENTER;
         p.add(loadBtn, g);
 
-        // Copy response button
         JButton copyRespBtn = new JButton("Copy Response");
         copyRespBtn.setBackground(SURFACE);
         copyRespBtn.setForeground(FG);
@@ -217,7 +212,7 @@ public class HistoryWindow extends JFrame {
         copyRespBtn.addActionListener(e ->
             Toolkit.getDefaultToolkit().getSystemClipboard()
                    .setContents(new StringSelection(respView.getText()), null));
-        g.gridy = 7; g.fill = GridBagConstraints.NONE;
+        g.gridy = 7;
         p.add(copyRespBtn, g);
 
         return p;
@@ -228,9 +223,8 @@ public class HistoryWindow extends JFrame {
     private void populateList() {
         listModel.clear();
         List<HistoryEntry> entries = store.getEntries();
-        for (HistoryEntry e : entries) {
+        for (HistoryEntry e : entries)
             listModel.addElement(formatLabel(e));
-        }
         applyListColors();
         if (!entries.isEmpty()) {
             entryList.setSelectedIndex(0);
@@ -240,26 +234,11 @@ public class HistoryWindow extends JFrame {
 
     private String formatLabel(HistoryEntry e) {
         String preview = e.message == null ? "" : e.message.replace("\n", " ");
-        if (preview.length() > 32) preview = preview.substring(0, 32) + "…";
+        if (preview.length() > 30) preview = preview.substring(0, 30) + "…";
         return "  " + e.timestamp + "  " + preview;
     }
 
     private void applyListColors() {
-        List<HistoryEntry> entries = store.getEntries();
-        for (int i = 0; i < entries.size(); i++) {
-            String mark = entries.get(i).mark;
-            if (mark != null) {
-                for (int j = 0; j < MARK_KEYS.length; j++) {
-                    if (MARK_KEYS[j].equals(mark)) {
-                        setRowColor(i, MARK_BG[j], MARK_FG[j]);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    private void setRowColor(int idx, Color bg, Color fg) {
         entryList.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value,
@@ -300,13 +279,10 @@ public class HistoryWindow extends JFrame {
         noteEntry.setText(e.note != null ? e.note : "");
 
         loadBtn.setEnabled(true);
-        // Replace action listener each time so we always load the current entry
         for (java.awt.event.ActionListener al : loadBtn.getActionListeners())
             loadBtn.removeActionListener(al);
-        loadBtn.addActionListener(ev -> {
-            mainPanel.messageArea.setText(e.message != null ? e.message : "");
-            dispose();
-        });
+        loadBtn.addActionListener(ev ->
+            mainPanel.messageArea.setText(e.message != null ? e.message : ""));
     }
 
     private void saveCurrentNote() {
@@ -322,7 +298,6 @@ public class HistoryWindow extends JFrame {
     private void showMarkMenu(java.awt.event.MouseEvent e, int idx) {
         List<HistoryEntry> entries = store.getEntries();
         if (idx >= entries.size()) return;
-        HistoryEntry entry = entries.get(idx);
 
         JPopupMenu menu = new JPopupMenu();
         menu.setBackground(SURFACE);
@@ -352,7 +327,6 @@ public class HistoryWindow extends JFrame {
         entry.mark = markKey;
         store.save();
 
-        // Sync with Burp proxy highlight
         if (entry.proxyItem != null) {
             try {
                 if (markKey == null) {
@@ -365,21 +339,28 @@ public class HistoryWindow extends JFrame {
                         }
                     }
                 }
-                // Also write the note to Burp's comment field
                 if (entry.note != null && !entry.note.isBlank())
                     entry.proxyItem.annotations().setNotes(entry.note);
             } catch (Exception ignored) {}
         }
 
-        // Refresh cell renderer
-        setRowColor(idx, markKey == null ? SURFACE : MARK_BG[markForIndex(markKey)],
-                         markKey == null ? FG      : MARK_FG[markForIndex(markKey)]);
+        applyListColors();
         entryList.repaint();
     }
 
-    private static int markForIndex(String key) {
-        for (int i = 0; i < MARK_KEYS.length; i++) if (MARK_KEYS[i].equals(key)) return i;
-        return 0;
+    // ── Label rename ─────────────────────────────────────────────────────────
+
+    private void renameLabel(int idx) {
+        String current = MARK_KEYS[idx];
+        String input = (String) JOptionPane.showInputDialog(
+                this, "Rename label:", "Rename  " + current,
+                JOptionPane.PLAIN_MESSAGE, null, null, current);
+        if (input == null || input.isBlank()) return;
+        MARK_KEYS[idx] = input.trim().toUpperCase();
+        markChips[idx].setText(" " + MARK_KEYS[idx] + " ");
+        HeBiPanel.saveMarkNames();
+        applyListColors();
+        entryList.repaint();
     }
 
     // ── Clear all ─────────────────────────────────────────────────────────────
@@ -400,10 +381,10 @@ public class HistoryWindow extends JFrame {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static JLabel label(String text, Color fg) {
+    private static JLabel sectionLabel(String text) {
         JLabel l = new JLabel(text);
-        l.setForeground(fg);
-        l.setFont(new Font("Monospaced", Font.BOLD, 9));
+        l.setForeground(MUTED);
+        l.setFont(new Font("Monospaced", Font.BOLD, Math.max(BASE_SIZE - 3, 9)));
         l.setBorder(BorderFactory.createEmptyBorder(4, 0, 2, 0));
         return l;
     }

@@ -25,7 +25,7 @@ public class HeBiContextMenu implements ContextMenuItemsProvider {
         List<HttpRequestResponse> selected = event.selectedRequestResponses();
         if (!selected.isEmpty()) {
             HttpRequestResponse rr = selected.get(0);
-            JMenuItem item = new JMenuItem("Send to HeBi-Chatter");
+            JMenuItem item = new JMenuItem("Send to PromptSlinger");
             item.addActionListener(e -> panel.loadRequest(rr));
             items.add(item);
             return items;
@@ -34,7 +34,7 @@ public class HeBiContextMenu implements ContextMenuItemsProvider {
         // Request open in a message editor (Repeater, Intruder, etc.)
         event.messageEditorRequestResponse().ifPresent(mer -> {
             HttpRequestResponse rr = mer.requestResponse();
-            JMenuItem item = new JMenuItem("Send to HeBi-Chatter");
+            JMenuItem item = new JMenuItem("Send to PromptSlinger");
             item.addActionListener(e -> panel.loadRequest(rr));
             items.add(item);
         });

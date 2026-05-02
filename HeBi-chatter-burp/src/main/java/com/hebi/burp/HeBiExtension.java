@@ -9,16 +9,16 @@ public class HeBiExtension implements BurpExtension {
 
     @Override
     public void initialize(MontoyaApi api) {
-        api.extension().setName("HeBi-Chatter");
+        api.extension().setName("PromptSlinger");
 
-        File storageDir = new File(System.getProperty("user.home"), ".hebi-chatter");
+        File storageDir = new File(System.getProperty("user.home"), ".promptslinger");
         HistoryStore store = new HistoryStore(storageDir);
 
         HeBiPanel panel = new HeBiPanel(api, store);
 
-        api.userInterface().registerSuiteTab("HeBi-Chatter", panel);
+        api.userInterface().registerSuiteTab("PromptSlinger", panel);
         api.userInterface().registerContextMenuItemsProvider(new HeBiContextMenu(panel));
 
-        api.logging().logToOutput("HeBi-Chatter loaded. History at: " + storageDir.getAbsolutePath());
+        api.logging().logToOutput("PromptSlinger loaded. History at: " + storageDir.getAbsolutePath());
     }
 }

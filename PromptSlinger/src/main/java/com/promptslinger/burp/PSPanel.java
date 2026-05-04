@@ -483,17 +483,24 @@ public class PSPanel extends JPanel {
 
         JPanel leftPane = new JPanel(new BorderLayout(0, 0));
         leftPane.setBackground(BG);
-        leftPane.setMinimumSize(new Dimension(0, 0));
+        leftPane.setMinimumSize(new Dimension(150, 0));
         leftPane.add(leftTabBar, BorderLayout.NORTH);
         leftPane.add(leftCards,  BorderLayout.CENTER);
+
+        boolean isLinux = System.getProperty("os.name", "").toLowerCase().contains("linux");
 
         mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         mainSplit.setBackground(BG);
         mainSplit.setBorder(null);
-        mainSplit.setDividerSize(5);
+        mainSplit.setDividerSize(isLinux ? 0 : 8);
+        mainSplit.setContinuousLayout(true);
+        mainSplit.setEnabled(!isLinux);
         mainSplit.setLeftComponent(leftPane);
         mainSplit.setRightComponent(split);
-        mainSplit.setDividerLocation(HISTORY_WIDTH);
+        SwingUtilities.invokeLater(() -> {
+            mainSplit.setDividerLocation(HISTORY_WIDTH);
+            mainSplit.setLastDividerLocation(HISTORY_WIDTH);
+        });
 
         add(mainSplit, BorderLayout.CENTER);
     }
@@ -962,11 +969,13 @@ public class PSPanel extends JPanel {
 
     private void toggleHistoryPanel() {
         if (mainSplit.getDividerLocation() > 10) {
+            mainSplit.setLastDividerLocation(HISTORY_WIDTH);
             mainSplit.setDividerLocation(0);
             histToggleBtn.setText("► Tools");
         } else {
             historyPanel.refresh();
             mainSplit.setDividerLocation(HISTORY_WIDTH);
+            mainSplit.setLastDividerLocation(HISTORY_WIDTH);
             histToggleBtn.setText("◄ Tools");
         }
     }

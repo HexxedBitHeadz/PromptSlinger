@@ -9,7 +9,6 @@ A Burp Suite extension for AI/LLM endpoint security testing. Built on the Montoy
 - **Send** — inject prompts into any JSON field of a loaded request
 - **Enumerate** — sweep common AI/A2A ports for agent cards (`/.well-known/agent.json`)
 - **Batch Send** — fire a list of payloads sequentially, auto-mark keyword hits, view full responses inline; optional multi-turn chaining
-- **Fuzz** — batch-send payload lists with delay control and live results table
 - **Compare** — send the same message to multiple saved endpoints side-by-side
 - **Multi-turn** — maintain conversation history across sends, injecting a `messages[]` array
 - **Payload Library** — built-in categorized prompt injection payloads

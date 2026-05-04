@@ -42,8 +42,8 @@ A Burp Suite extension for AI/LLM endpoint security testing. Built on the Montoy
 **Prerequisites:** Java 17+, Maven 3.8+
 
 ```bash
-git clone https://github.com/HexxedBitHeadz/osai-300.git
-cd osai-300/PromptSlinger
+git clone https://github.com/HexxedBitHeadz/PromptSlinger.git
+cd PromptSlinger/PromptSlinger
 mvn clean package
 ```
 

@@ -565,7 +565,7 @@ public class PSPanel extends JPanel {
                 if (!(root instanceof ObjectNode on))
                     throw new IllegalStateException("Request body is not a JSON object.");
 
-                on.put(fieldName, finalMessage);
+                injectAtPath(root, fieldName, finalMessage);
                 if (currentSessionId != null && on.has("session_id"))
                     on.put("session_id", currentSessionId);
 
@@ -1070,13 +1070,17 @@ public class PSPanel extends JPanel {
 
     private String autoDetectField(HttpRequest request) {
         String[] candidates = {"message", "prompt", "query", "input", "text",
-                               "content", "msg", "user_input", "user_message"};
+                               "content", "msg", "user_input", "user_message", "parts"};
         try {
             JsonNode root = mapper.readTree(request.bodyToString());
+            // Check top-level candidates first
             for (String c : candidates) {
-                if (root.has(c)) return c;
+                if (root.has(c) && root.get(c).isTextual()) return c;
             }
-            // Fall back to first string-valued field
+            // Search recursively for nested candidates
+            String nested = findNestedPath(root, candidates, "");
+            if (nested != null) return nested;
+            // Fall back to first string-valued top-level field
             Iterator<Map.Entry<String, JsonNode>> it = root.fields();
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> f = it.next();
@@ -1084,6 +1088,61 @@ public class PSPanel extends JPanel {
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    private String findNestedPath(JsonNode node, String[] candidates, String prefix) {
+        if (node.isObject()) {
+            for (String c : candidates) {
+                if (node.has(c)) {
+                    String path = prefix.isEmpty() ? c : prefix + "." + c;
+                    JsonNode child = node.get(c);
+                    if (child.isTextual()) return path;
+                    String deeper = findNestedPath(child, candidates, path);
+                    if (deeper != null) return deeper;
+                }
+            }
+            Iterator<Map.Entry<String, JsonNode>> it = node.fields();
+            while (it.hasNext()) {
+                Map.Entry<String, JsonNode> f = it.next();
+                String path = prefix.isEmpty() ? f.getKey() : prefix + "." + f.getKey();
+                String result = findNestedPath(f.getValue(), candidates, path);
+                if (result != null) return result;
+            }
+        } else if (node.isArray()) {
+            String parentName = prefix.contains(".") ? prefix.substring(prefix.lastIndexOf('.') + 1) : prefix;
+            for (int i = 0; i < node.size(); i++) {
+                String path = prefix + "." + i;
+                JsonNode elem = node.get(i);
+                if (elem.isTextual()) {
+                    for (String c : candidates) {
+                        if (c.equals(parentName)) return path;
+                    }
+                }
+                String result = findNestedPath(elem, candidates, path);
+                if (result != null) return result;
+            }
+        }
+        return null;
+    }
+
+    static void injectAtPath(JsonNode root, String path, String value) {
+        String[] parts = path.split("\\.");
+        JsonNode current = root;
+        for (int i = 0; i < parts.length - 1; i++) {
+            JsonNode next = current.isArray()
+                    ? current.get(Integer.parseInt(parts[i]))
+                    : current.get(parts[i]);
+            if (next == null) throw new IllegalArgumentException("Path not found: " + path);
+            current = next;
+        }
+        String last = parts[parts.length - 1];
+        if (current instanceof com.fasterxml.jackson.databind.node.ObjectNode on) {
+            on.put(last, value);
+        } else if (current instanceof com.fasterxml.jackson.databind.node.ArrayNode an) {
+            an.set(Integer.parseInt(last), new com.fasterxml.jackson.databind.node.TextNode(value));
+        } else {
+            throw new IllegalArgumentException("Cannot inject at path: " + path);
+        }
     }
 
     private void updateMsgTokens() {

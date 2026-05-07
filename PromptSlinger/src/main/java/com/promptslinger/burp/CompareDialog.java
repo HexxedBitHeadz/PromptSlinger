@@ -149,7 +149,7 @@ public class CompareDialog extends JDialog {
                     JsonNode root = mapper.readTree(body);
                     if (!(root instanceof ObjectNode on))
                         throw new IllegalStateException("Request body is not a JSON object.");
-                    on.put(slot.fieldName, finalMessage);
+                    PSPanel.injectAtPath(root, slot.fieldName, finalMessage);
                     if (slot.sessionId != null && on.has("session_id"))
                         on.put("session_id", slot.sessionId);
 

@@ -150,6 +150,7 @@ public class CompareDialog extends JDialog {
                     if (!(root instanceof ObjectNode on))
                         throw new IllegalStateException("Request body is not a JSON object.");
                     PSPanel.injectAtPath(root, slot.fieldName, finalMessage);
+                    on.put("stream", false);
                     if (slot.sessionId != null && on.has("session_id"))
                         on.put("session_id", slot.sessionId);
 

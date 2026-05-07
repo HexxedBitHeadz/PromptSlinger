@@ -566,6 +566,7 @@ public class PSPanel extends JPanel {
                     throw new IllegalStateException("Request body is not a JSON object.");
 
                 injectAtPath(root, fieldName, finalMessage);
+                on.put("stream", false);
                 if (currentSessionId != null && on.has("session_id"))
                     on.put("session_id", currentSessionId);
 

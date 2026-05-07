@@ -302,6 +302,7 @@ public class BatchFuzzDialog extends JDialog {
                     if (!(root instanceof ObjectNode on))
                         throw new IllegalStateException("Request body is not a JSON object.");
                     PSPanel.injectAtPath(root, fieldName, payload);
+                    on.put("stream", false);
 
                     // Multi-turn: inject accumulated conversation history
                     if (multiTurnCheck.isSelected() && !conversationTurns.isEmpty()) {

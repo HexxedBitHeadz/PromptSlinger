@@ -19,6 +19,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static com.promptslinger.burp.PSPanel.*;
 
@@ -282,67 +286,70 @@ public class AgentEnumeratorDialog extends JDialog {
                 final int total = ports.size() * PROBE_PATHS.length;
                 SwingUtilities.invokeLater(() -> progressBar.setMaximum(total));
 
-                int globalIdx = 0;
+                AtomicInteger completed = new AtomicInteger(0);
+                ExecutorService pool = Executors.newFixedThreadPool(20);
+
                 for (int port : ports) {
-                    if (stopped.get()) break;
                     boolean secure  = (port == basePort) ? baseSec : false;
                     String  scheme  = secure ? "https" : "http";
                     String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
                     HttpService service = HttpService.httpService(host, port, secure);
 
-                    for (int i = 0; i < PROBE_PATHS.length; i++, globalIdx++) {
-                        if (stopped.get() || Thread.currentThread().isInterrupted()) break;
+                    for (String probePath : PROBE_PATHS) {
+                        if (stopped.get()) break;
+                        final String fp = probePath;
+                        final String fs = scheme, fh = hostHdr;
+                        final HttpService fsvc = service;
+                        final int fport = port;
 
-                        final String probePath = PROBE_PATHS[i];
-                        final int    gIdx      = globalIdx;
-                        final int    curPort   = port;
+                        pool.submit(() -> {
+                            if (stopped.get()) { completed.incrementAndGet(); return; }
+                            try {
+                                String rawReq = "GET " + fp + " HTTP/1.1\r\n"
+                                        + "Host: " + fh + "\r\n"
+                                        + "Accept: application/json, text/plain, */*\r\n"
+                                        + "User-Agent: PromptSlinger-Enumerator/1.0\r\n"
+                                        + "Connection: close\r\n"
+                                        + "\r\n";
 
-                        SwingUtilities.invokeLater(() -> setStatus(
-                                "Port " + curPort + "  (" + (gIdx + 1) + "/" + total + ")  " + probePath));
+                                HttpRequestResponse rr = api.http().sendRequest(
+                                        HttpRequest.httpRequest(fsvc, rawReq));
 
-                        try {
-                            String rawReq = "GET " + probePath + " HTTP/1.1\r\n"
-                                    + "Host: " + hostHdr + "\r\n"
-                                    + "Accept: application/json, text/plain, */*\r\n"
-                                    + "User-Agent: PromptSlinger-Enumerator/1.0\r\n"
-                                    + "Connection: close\r\n"
-                                    + "\r\n";
+                                int    status  = rr.response() != null ? rr.response().statusCode() : 0;
+                                String body    = rr.response() != null ? rr.response().bodyToString() : "";
+                                String ct      = rr.response() != null
+                                        ? (rr.response().headerValue("Content-Type") != null
+                                           ? rr.response().headerValue("Content-Type") : "") : "";
 
-                            HttpRequestResponse rr = api.http().sendRequest(
-                                    HttpRequest.httpRequest(service, rawReq));
+                                String type    = detectType(fp, body, ct);
+                                String summary = extractSummary(fp, body);
+                                String fullUrl = fs + "://" + fh + fp;
 
-                            int    status  = rr.response() != null ? rr.response().statusCode() : 0;
-                            String body    = rr.response() != null ? rr.response().bodyToString() : "";
-                            String ct      = rr.response() != null
-                                    ? (rr.response().headerValue("Content-Type") != null
-                                       ? rr.response().headerValue("Content-Type") : "")
-                                    : "";
+                                Object[] row = {fullUrl, fp, status, type, summary, body};
+                                synchronized (allRows) { allRows.add(row); }
 
-                            String type    = detectType(probePath, body, ct);
-                            String summary = extractSummary(probePath, body);
-                            String fullUrl = scheme + "://" + hostHdr + probePath;
-
-                            Object[] row = {fullUrl, probePath, status, type, summary, body};
-                            synchronized (allRows) { allRows.add(row); }
-
-                            final int    st = status;
-                            final String ty = type, su = summary, fu = fullUrl;
-                            final String fb = body;
-                            SwingUtilities.invokeLater(() -> {
-                                progressBar.setValue(gIdx + 1);
-                                if (showAllCheck.isSelected() || (isInteresting(st) && !isBurpProxy(fb))) {
-                                    tableModel.addRow(new Object[]{fu, st, ty, su});
-                                    if (table.getRowCount() == 1) table.setRowSelectionInterval(0, 0);
-                                }
-                            });
-
-                        } catch (Exception ex) {
-                            Object[] row = {scheme + "://" + hostHdr + probePath, probePath,
-                                    0, "Error", ex.getClass().getSimpleName(), ""};
-                            synchronized (allRows) { allRows.add(row); }
-                        }
+                                final int    st = status;
+                                final String fu = fullUrl, fb = body, ty = type, su = summary;
+                                SwingUtilities.invokeLater(() -> {
+                                    progressBar.setValue(completed.incrementAndGet());
+                                    setStatus("Scanning port " + fport + "  (" + completed.get() + "/" + total + ")");
+                                    if (showAllCheck.isSelected() || (isInteresting(st) && !isBurpProxy(fb))) {
+                                        tableModel.addRow(new Object[]{fu, st, ty, su});
+                                        if (table.getRowCount() == 1) table.setRowSelectionInterval(0, 0);
+                                    }
+                                });
+                            } catch (Exception ex) {
+                                Object[] row = {fs + "://" + fh + fp, fp, 0, "Error",
+                                        ex.getClass().getSimpleName(), ""};
+                                synchronized (allRows) { allRows.add(row); }
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(completed.incrementAndGet()));
+                            }
+                        });
                     }
                 }
+
+                pool.shutdown();
+                pool.awaitTermination(5, TimeUnit.MINUTES);
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> setStatus("Error: " + ex.getMessage()));
             }

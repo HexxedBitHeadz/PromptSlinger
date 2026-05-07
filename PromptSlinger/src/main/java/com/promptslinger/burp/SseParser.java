@@ -151,6 +151,7 @@ public class SseParser {
             if (on.has("content"))  return on.get("content").asText();
             if (on.has("text"))     return on.get("text").asText();
             if (on.has("response")) return on.get("response").asText();
+            if (on.has("t"))        return on.get("t").asText();
         }
         return null;
     }

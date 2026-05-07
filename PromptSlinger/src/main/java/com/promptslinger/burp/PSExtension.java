@@ -18,6 +18,7 @@ public class PSExtension implements BurpExtension {
 
         api.userInterface().registerSuiteTab("PromptSlinger", panel);
         api.userInterface().registerContextMenuItemsProvider(new PSContextMenu(panel));
+        api.extension().registerUnloadingHandler(panel::shutdown);
 
         api.logging().logToOutput("PromptSlinger loaded. History at: " + storageDir.getAbsolutePath());
     }

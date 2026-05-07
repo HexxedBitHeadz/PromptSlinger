@@ -507,6 +507,13 @@ public class PSPanel extends JPanel {
 
     // â"€â"€ Send logic â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
+    public void shutdown() {
+        if (activeWorker != null) {
+            activeWorker.interrupt();
+            activeWorker = null;
+        }
+    }
+
     private void resetSendButton() {
         activeWorker = null;
         sendBtn.setText("Send");

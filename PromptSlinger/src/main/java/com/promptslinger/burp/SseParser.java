@@ -1,8 +1,17 @@
 package com.promptslinger.burp;
 
+import burp.api.montoya.http.message.HttpHeader;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 public class SseParser {
 
@@ -31,7 +40,7 @@ public class SseParser {
             dataLines++;
             try {
                 JsonNode node = MAPPER.readTree(data);
-                String chunk = extractChunk(node);
+                String chunk = extractSseChunk(node);
                 if (chunk != null) sb.append(chunk);
             } catch (Exception ignored) {
                 sb.append(data);
@@ -43,7 +52,65 @@ public class SseParser {
         return sb.toString();
     }
 
-    private static String extractChunk(JsonNode node) {
+    /**
+     * Fallback for when Burp's sendRequest() throws a streaming exception.
+     * Opens a direct HttpURLConnection to the target, reads the streaming response
+     * line by line, and assembles the full text from SSE or NDJSON (Ollama) format.
+     */
+    public static String readStreaming(HttpRequest request, String targetUrl) {
+        try {
+            URL url = new URL(targetUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod(request.method());
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(30_000);
+            conn.setReadTimeout(120_000);
+
+            for (HttpHeader h : request.headers()) {
+                String name = h.name();
+                if (name.equalsIgnoreCase("Host") ||
+                    name.equalsIgnoreCase("Content-Length") ||
+                    name.equalsIgnoreCase("Accept-Encoding") ||
+                    name.equalsIgnoreCase("Connection")) continue;
+                try { conn.setRequestProperty(name, h.value()); } catch (Exception ignored) {}
+            }
+
+            byte[] body = request.bodyToString().getBytes(StandardCharsets.UTF_8);
+            conn.setFixedLengthStreamingMode(body.length);
+            try (OutputStream os = conn.getOutputStream()) { os.write(body); }
+
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    if (line.isEmpty()) continue;
+                    if (line.startsWith("data:")) {
+                        String data = line.substring(5).trim();
+                        if ("[DONE]".equals(data)) continue;
+                        try {
+                            JsonNode node = MAPPER.readTree(data);
+                            String chunk = extractSseChunk(node);
+                            if (chunk != null) sb.append(chunk);
+                        } catch (Exception ignored) { sb.append(data); }
+                    } else {
+                        // NDJSON (Ollama /api/chat and /api/generate)
+                        try {
+                            JsonNode node = MAPPER.readTree(line);
+                            String chunk = extractNdjsonChunk(node);
+                            if (chunk != null) sb.append(chunk);
+                        } catch (Exception ignored) {}
+                    }
+                }
+            }
+            return sb.length() > 0 ? sb.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String extractSseChunk(JsonNode node) {
         // OpenAI streaming
         if (node.has("choices")) {
             JsonNode choices = node.get("choices");
@@ -70,6 +137,20 @@ public class SseParser {
             if (on.has("text"))     return on.get("text").asText();
             if (on.has("response")) return on.get("response").asText();
         }
+        return null;
+    }
+
+    private static String extractNdjsonChunk(JsonNode node) {
+        // Ollama /api/chat
+        if (node.has("message")) {
+            JsonNode msg = node.get("message");
+            if (msg.has("content")) return msg.get("content").asText();
+        }
+        // Ollama /api/generate
+        if (node.has("response")) return node.get("response").asText();
+        // Generic fallbacks
+        if (node.has("content")) return node.get("content").asText();
+        if (node.has("text"))    return node.get("text").asText();
         return null;
     }
 }

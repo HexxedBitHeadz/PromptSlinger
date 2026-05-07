@@ -600,7 +600,18 @@ public class PSPanel extends JPanel {
                         .withUpdatedHeader("Host", hostHeader)
                         .withBody(mapper.writeValueAsString(on));
                 long t0 = System.currentTimeMillis();
-                HttpRequestResponse result = api.http().sendRequest(modified);
+                HttpRequestResponse result = null;
+                String streamedText = null;
+                try {
+                    result = api.http().sendRequest(modified);
+                } catch (Exception se) {
+                    String msg = se.getMessage();
+                    if (msg != null && msg.toLowerCase().contains("stream")) {
+                        streamedText = SseParser.readStreaming(modified, targetUrl);
+                    } else {
+                        throw se;
+                    }
+                }
                 final long latencyMs = System.currentTimeMillis() - t0;
 
                 if (Thread.currentThread().isInterrupted()) {
@@ -608,7 +619,8 @@ public class PSPanel extends JPanel {
                     return;
                 }
 
-                String rawResp = result.response() != null
+                String rawResp = streamedText != null ? streamedText
+                        : result != null && result.response() != null
                         ? result.response().bodyToString() : "(no response body)";
 
                 String pretty;

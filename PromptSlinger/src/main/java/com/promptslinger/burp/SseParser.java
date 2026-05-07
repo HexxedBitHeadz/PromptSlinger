@@ -79,34 +79,49 @@ public class SseParser {
             conn.setFixedLengthStreamingMode(body.length);
             try (OutputStream os = conn.getOutputStream()) { os.write(body); }
 
-            StringBuilder sb = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    line = line.trim();
-                    if (line.isEmpty()) continue;
-                    if (line.startsWith("data:")) {
-                        String data = line.substring(5).trim();
-                        if ("[DONE]".equals(data)) continue;
-                        try {
-                            JsonNode node = MAPPER.readTree(data);
-                            String chunk = extractSseChunk(node);
-                            if (chunk != null) sb.append(chunk);
-                        } catch (Exception ignored) { sb.append(data); }
-                    } else {
-                        // NDJSON (Ollama /api/chat and /api/generate)
-                        try {
-                            JsonNode node = MAPPER.readTree(line);
-                            String chunk = extractNdjsonChunk(node);
-                            if (chunk != null) sb.append(chunk);
-                        } catch (Exception ignored) {}
+            StringBuilder extracted = new StringBuilder();
+            StringBuilder raw       = new StringBuilder();
+
+            java.io.InputStream is;
+            try {
+                is = conn.getInputStream();
+            } catch (Exception e) {
+                is = conn.getErrorStream();
+            }
+
+            if (is != null) {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (!line.isEmpty()) raw.append(line).append("\n");
+                        line = line.trim();
+                        if (line.isEmpty()) continue;
+                        if (line.startsWith("data:")) {
+                            String data = line.substring(5).trim();
+                            if ("[DONE]".equals(data)) continue;
+                            try {
+                                JsonNode node = MAPPER.readTree(data);
+                                String chunk = extractSseChunk(node);
+                                if (chunk != null) extracted.append(chunk);
+                            } catch (Exception ignored) { extracted.append(data); }
+                        } else {
+                            // NDJSON (Ollama /api/chat and /api/generate)
+                            try {
+                                JsonNode node = MAPPER.readTree(line);
+                                String chunk = extractNdjsonChunk(node);
+                                if (chunk != null) extracted.append(chunk);
+                            } catch (Exception ignored) {}
+                        }
                     }
                 }
             }
-            return sb.length() > 0 ? sb.toString() : null;
+
+            // Return extracted text if we got it, otherwise the raw stream so the user can see it
+            if (extracted.length() > 0) return extracted.toString();
+            return raw.length() > 0 ? raw.toString() : null;
         } catch (Exception e) {
-            return null;
+            return "Stream error: " + e.getMessage();
         }
     }
 

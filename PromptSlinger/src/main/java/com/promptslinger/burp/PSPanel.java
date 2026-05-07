@@ -304,7 +304,7 @@ public class PSPanel extends JPanel {
         messageArea.setBackground(ENTRY_BG);
         messageArea.setForeground(FG);
         messageArea.setCaretColor(FG);
-        messageArea.setFont(MONO);
+        messageArea.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE + 4));
         messageArea.setLineWrap(true);
         messageArea.setWrapStyleWord(true);
         messageArea.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
@@ -427,7 +427,7 @@ public class PSPanel extends JPanel {
         responsePane.setEditable(false);
         responsePane.setBackground(SURFACE);
         responsePane.setForeground(FG);
-        responsePane.setFont(MONO);
+        responsePane.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE + 4));
         responsePane.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
         initResponseStyles();
 
@@ -694,7 +694,7 @@ public class PSPanel extends JPanel {
         StyledDocument doc = responsePane.getStyledDocument();
         Style base = doc.addStyle("base", null);
         StyleConstants.setFontFamily(base, "Monospaced");
-        StyleConstants.setFontSize(base, BASE_SIZE);
+        StyleConstants.setFontSize(base, BASE_SIZE + 4);
         StyleConstants.setForeground(base, FG);
 
         keyStyle       = doc.addStyle("key",       base); StyleConstants.setForeground(keyStyle,       ACCENT);

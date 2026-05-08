@@ -336,13 +336,22 @@ public class BatchFuzzDialog extends JDialog {
                             .withBody(mapper.writeValueAsString(on));
 
                     long t0 = System.currentTimeMillis();
-                    burp.api.montoya.http.message.HttpRequestResponse result =
-                            api.http().sendRequest(modified);
+                    String rawResp;
+                    int    statusCode;
+                    try {
+                        burp.api.montoya.http.message.HttpRequestResponse result =
+                                api.http().sendRequest(modified);
+                        rawResp    = result.response() != null ? result.response().bodyToString() : "(no response)";
+                        statusCode = result.response() != null ? result.response().statusCode()   : 0;
+                        // SSE assembled from buffered body
+                        String sseText = SseParser.assemble(rawResp);
+                        if (sseText != null && !sseText.isBlank()) rawResp = sseText;
+                    } catch (Exception streamEx) {
+                        rawResp    = SseParser.readStreaming(modified, targetUrl);
+                        if (rawResp == null) rawResp = "(no response)";
+                        statusCode = 200;
+                    }
                     long latencyMs = System.currentTimeMillis() - t0;
-
-                    String rawResp = result.response() != null
-                            ? result.response().bodyToString() : "(no response)";
-                    int statusCode = result.response() != null ? result.response().statusCode() : 0;
 
                     String pretty;
                     String plainResp;

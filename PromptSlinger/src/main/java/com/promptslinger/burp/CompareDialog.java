@@ -171,12 +171,18 @@ public class CompareDialog extends JDialog {
                             .withBody(mapper.writeValueAsString(on));
 
                     long t0 = System.currentTimeMillis();
-                    burp.api.montoya.http.message.HttpRequestResponse result =
-                            api.http().sendRequest(modified);
+                    String rawResp;
+                    try {
+                        burp.api.montoya.http.message.HttpRequestResponse result =
+                                api.http().sendRequest(modified);
+                        rawResp = result.response() != null ? result.response().bodyToString() : "(no response)";
+                        String sseBuffered = SseParser.assemble(rawResp);
+                        if (sseBuffered != null && !sseBuffered.isBlank()) rawResp = sseBuffered;
+                    } catch (Exception streamEx) {
+                        rawResp = SseParser.readStreaming(modified, slot.url);
+                        if (rawResp == null) rawResp = "(no response)";
+                    }
                     long latencyMs = System.currentTimeMillis() - t0;
-
-                    String rawResp = result.response() != null
-                            ? result.response().bodyToString() : "(no response)";
 
                     String pretty;
                     String plainResp;
@@ -190,10 +196,8 @@ public class CompareDialog extends JDialog {
                         plainResp = rawResp;
                     }
 
-                    // SSE assembly
-                    String sseText = SseParser.assemble(rawResp);
-                    boolean isSse  = (sseText != null && !sseText.isBlank());
-                    String display = isSse ? sseText : plainResp;
+                    boolean isSse  = false;
+                    String display = plainResp;
 
                     String ts = new SimpleDateFormat("HH:mm:ss").format(new Date());
                     HistoryEntry entry = new HistoryEntry(ts, slot.url, message,

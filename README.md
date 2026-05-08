@@ -1,6 +1,7 @@
 # PromptSlinger
 
-A Burp Suite extension for AI/LLM endpoint security testing. Built on the Montoya API.
+A WORK-IN-PROGRESS Burp Suite extension for AI/LLM endpoint security testing. Built on the Montoya API. Currently being build around internal AI chat lab, sharing as it may work with other lab enviornments. Do not expect to work against consumer facing AI frontends.
+
 
 ---
 
@@ -61,6 +62,25 @@ Then load it in Burp Suite: **Extensions → Add → Select JAR**
 5. Use **Batch Send** to run payload lists; check **Multi-turn** to chain payloads as a conversation
 
 See the built-in **?** help button for a full feature walkthrough.
+
+---
+
+## Compatible Targets
+
+PromptSlinger works best against targets where you have direct, unobstructed access to the LLM API layer:
+
+**Works well:**
+- Internal or self-hosted LLM APIs (Ollama, vLLM, LocalAI, custom inference servers)
+- OpenAI-compatible API endpoints using bearer token auth
+- Anthropic-compatible API endpoints
+- Lab environments and CTF/training platforms
+- Custom-built AI applications proxied through Burp
+- Agent frameworks with A2A/MCP endpoints
+
+**Will not work:**
+- Consumer-facing web frontends protected by bot-detection platforms (Cloudflare Turnstile, proof-of-work challenges, short-lived sentinel tokens). These services generate single-use, time-limited request tokens in the browser via JavaScript — captured requests cannot be replayed outside that browser session regardless of cookies or headers copied.
+
+If a target returns a `403` with an "unusual activity" or bot-detection message when replaying a captured request, it is protected at the infrastructure layer and is outside the scope of what any Burp extension can reach.
 
 ---
 

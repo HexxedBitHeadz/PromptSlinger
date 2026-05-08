@@ -151,7 +151,7 @@ public class PSPanel extends JPanel {
     private void syncFontFromBurp() {
         java.awt.Font burpFont = api.userInterface().currentDisplayFont();
         java.awt.Font lf = (burpFont != null) ? burpFont : UIManager.getFont("Label.font");
-        BASE_SIZE = (lf != null) ? lf.getSize() : 13;
+        BASE_SIZE = (lf != null) ? lf.getSize() + 3 : 16;
         MONO      = new Font("Monospaced", Font.PLAIN, BASE_SIZE);
         MONO_BOLD = new Font("Monospaced", Font.BOLD,  BASE_SIZE);
     }

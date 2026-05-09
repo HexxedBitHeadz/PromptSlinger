@@ -116,6 +116,7 @@ public class PSPanel extends JPanel {
     private final List<Map<String,String>> conversationTurns = new ArrayList<>();
     private boolean                multiTurnMode     = false;
     private BatchFuzzDialog        batchDialog;
+    private CrescendoDialog        crescendoDialog;
 
     // Endpoint slots (for Compare)
     private final List<EndpointSlot> slots = new ArrayList<>();
@@ -378,6 +379,10 @@ public class PSPanel extends JPanel {
         JButton fuzzBtn = actionButton("Batch", ORANGE);
         fuzzBtn.addActionListener(e -> openBatch());
         btnBar.add(fuzzBtn);
+
+        JButton crescendoBtn = actionButton("Crescendo", PINK);
+        crescendoBtn.addActionListener(e -> openCrescendo());
+        btnBar.add(crescendoBtn);
 
         multiTurnBtn = actionButton("Multi-turn: OFF", MUTED);
         multiTurnBtn.addActionListener(e -> toggleMultiTurn());
@@ -856,6 +861,22 @@ public class PSPanel extends JPanel {
         }
         batchDialog.setVisible(true);
         batchDialog.toFront();
+    }
+
+    private void openCrescendo() {
+        if (currentRequest == null) {
+            showInfo("Load a request first before opening the Crescendo builder.");
+            return;
+        }
+        if (crescendoDialog == null || !crescendoDialog.isDisplayable()) {
+            crescendoDialog = new CrescendoDialog(
+                    this, api, store, currentRequest,
+                    urlField.getText().trim(),
+                    fieldNameInput.getText().trim(),
+                    historyPanel);
+        }
+        crescendoDialog.setVisible(true);
+        crescendoDialog.toFront();
     }
 
     // â"€â"€ Endpoint slots & compare â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€

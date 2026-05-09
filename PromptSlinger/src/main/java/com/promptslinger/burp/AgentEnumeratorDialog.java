@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
@@ -55,11 +56,25 @@ public class AgentEnumeratorDialog extends JDialog {
         "/api/docs",
         "/api/schema",
         "/api/swagger",
+        // OpenAI-compatible inference endpoints
+        "/v1/chat/completions",
+        "/api/v1/chat/completions",
+        "/api/chat/completions",
+        "/v1/completions",
+        "/api/v1/completions",
+        "/v1/embeddings",
+        "/api/v1/embeddings",
         // OpenAI-compatible models list
         "/v1/models",
         "/api/v1/models",
         "/api/models",
         "/models",
+        // Auth / billing (common on hosted AI APIs)
+        "/v1/auth",
+        "/v1/billing",
+        "/v1/users",
+        "/v1/keys",
+        "/v1/usage",
         // Assistants API
         "/v1/assistants",
         "/api/v1/assistants",
@@ -99,19 +114,67 @@ public class AgentEnumeratorDialog extends JDialog {
         // WebFinger and discovery
         "/.well-known/webfinger",
         "/.well-known/openid-configuration",
+        // RAG — vector search / retrieval
+        "/query",
+        "/api/query",
+        "/v1/query",
+        "/search",
+        "/api/search",
+        "/v1/search",
+        "/retrieve",
+        "/api/retrieve",
+        "/v1/retrieve",
+        "/semantic-search",
+        "/api/semantic-search",
+        // RAG — document / chunk stores
+        "/documents",
+        "/api/documents",
+        "/chunks",
+        "/api/chunks",
+        "/context",
+        "/api/context",
+        // RAG — collections / namespaces (vector DB concepts)
+        "/collections",
+        "/api/collections",
+        "/v1/collections",
+        "/namespaces",
+        "/api/namespaces",
+        "/indexes",
+        "/api/indexes",
+        "/api/index",
+        // RAG — ingest / upload (knowledge base poisoning surface)
+        "/ingest",
+        "/api/ingest",
+        "/v1/ingest",
+        "/upload",
+        "/api/upload",
+        "/index",
+        "/api/index",
+        "/embed",
+        "/api/embed",
+        // Common vector DB admin paths
+        "/api/v1/collections",
+        "/api/v1/namespaces",
+        "/api/v1/indexes",
     };
 
     // Built-in wordlist for fuzz mode (no leading slash, no prefix)
     private static final String[] BUILTIN_ENDPOINTS = {
         "account", "accounts", "admin", "agent", "agent.json", "assistant",
-        "auth", "chat", "completions", "config", "configuration", "context",
+        "auth", "billing", "chat", "chat/completions", "completions",
+        "config", "configuration", "context",
         "data", "debug", "docs", "embeddings", "embed", "files", "generate",
         "health", "info", "infer", "inference", "keys", "limits", "login",
         "logout", "me", "metrics", "model", "models", "openapi.json",
         "ping", "profile", "prompts", "query", "refresh", "register",
         "route", "schema", "search", "settings", "status", "system",
-        "token", "tokens", "tools", "upload", "user", "users", "version",
-        "workflow", "whoami",
+        "token", "tokens", "tools", "upload", "usage", "user", "users",
+        "version", "workflow", "whoami",
+        // RAG-specific
+        "retrieve", "retrieval", "semantic-search", "vector-search",
+        "documents", "document", "chunks", "chunk", "passages",
+        "collections", "collection", "namespaces", "namespace",
+        "indexes", "index", "ingest", "pipeline",
         ".well-known/agent.json", ".well-known/ai-plugin.json",
         ".well-known/llms.txt", ".well-known/openid-configuration",
     };
@@ -123,8 +186,9 @@ public class AgentEnumeratorDialog extends JDialog {
         "service", "internal", "public",
     };
 
-    // Common A2A/agent ports to sweep in addition to the base port
-    private static final int[] EXTRA_PORTS = {8000, 8001, 8002, 8003, 8080};
+    private static final int[] COMMON_PORTS = {
+        8000, 8001, 8002, 8003, 8080
+    };
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
@@ -137,7 +201,7 @@ public class AgentEnumeratorDialog extends JDialog {
     private final PSPanel     owner;
 
     private final JTextField       urlField     = new JTextField();
-    private final JCheckBox        showAllCheck = new JCheckBox("Show 404s");
+    private final JCheckBox        showAllCheck = new JCheckBox("Show all responses");
     private final JProgressBar     progressBar  = new JProgressBar();
     private final JLabel           statusLabel  = new JLabel("Ready");
     private final JButton          scanBtn      = btn("Scan", GREEN);
@@ -146,20 +210,50 @@ public class AgentEnumeratorDialog extends JDialog {
     private final JTable           table        = buildTable();
     private final JTextPane        detailPane   = new JTextPane();
 
+    // Teal for 405 — distinct from orange 401/403
+    private static final Color CYAN_405 = new Color(0x56, 0xB6, 0xC2);
+
+    // Common ports checkbox — on by default; text field for any additional ports
+    private final JCheckBox    commonPortsCheck = new JCheckBox("Common ports", true);
+    private final JTextField   portsField       = new JTextField("", 10) {
+        @Override protected void paintComponent(java.awt.Graphics g) {
+            super.paintComponent(g);
+            if (getText().isEmpty() && !isFocusOwner()) {
+                java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                g2.setColor(MUTED);
+                g2.setFont(getFont().deriveFont(java.awt.Font.ITALIC));
+                java.awt.Insets ins = getInsets();
+                g2.drawString("additional...", ins.left + 2,
+                        getHeight() / 2 + g2.getFontMetrics().getAscent() / 2 - 2);
+                g2.dispose();
+            }
+        }
+    };
+
+    // Status-code filter checkboxes — populated after each scan
+    private final JPanel                    statusFilterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
+    private final Map<Integer, JCheckBox>   statusFilters     = new java.util.LinkedHashMap<>();
+
     // Wordlist fuzz controls
     private final JCheckBox    fuzzCheck     = new JCheckBox("Fuzz paths");
     private final JComboBox<String> depthBox = new JComboBox<>(new String[]{
         "Depth 1  —  /{word}",
         "Depth 2  —  /{prefix}/{word}",
-        "Depth 3  —  /{prefix}/{word}/{word}  (slow)",
+        "Depth 3  —  /{prefix}/{word}/{word}",
     });
     private final JLabel       wordlistLabel = new JLabel("  built-in wordlist");
     private List<String>       customWordlist = null;
 
     // allRows: {fullUrl, probePath, status(int or "ERR"), type, summary, body, headersAll, aiHeaders}
-    private final List<Object[]>   allRows  = new ArrayList<>();
-    private final AtomicBoolean    stopped  = new AtomicBoolean(false);
+    private final List<Object[]>   allRows     = new ArrayList<>();
+    private final AtomicBoolean    stopped     = new AtomicBoolean(false);
     private Thread                 worker;
+
+    private final JButton          openApiBtn  = btn("Scan OpenAPI Paths", PINK);
+    private final JButton          jsBtn       = btn("Probe HTML Resources", PINK);
+
+    // Auto-populated probe buttons for discovered paths in the selected row
+    private final JPanel           probePathsBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 3));
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -241,6 +335,7 @@ public class AgentEnumeratorDialog extends JDialog {
         depthBox.setBackground(ENTRY_BG);
         depthBox.setForeground(FG);
         depthBox.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        depthBox.setPreferredSize(new Dimension(240, depthBox.getPreferredSize().height));
         depthBox.setEnabled(false);
 
         JButton browseBtn = btn("Load wordlist", MUTED);
@@ -256,6 +351,23 @@ public class AgentEnumeratorDialog extends JDialog {
             browseBtn.setEnabled(on);
         });
 
+        commonPortsCheck.setBackground(BG);
+        commonPortsCheck.setForeground(ACCENT);
+        commonPortsCheck.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        commonPortsCheck.setFocusPainted(false);
+        commonPortsCheck.setToolTipText("Scan A2A ecosystem ports: 8000, 8001, 8002, 8003, 8080");
+
+        portsField.setBackground(ENTRY_BG);
+        portsField.setForeground(FG);
+        portsField.setCaretColor(FG);
+        portsField.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        portsField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(SURFACE, 1),
+                BorderFactory.createEmptyBorder(2, 5, 2, 5)));
+        portsField.setToolTipText("Optional: additional ports to scan beyond the base URL port and common ports (comma-separated)");
+
+        statusFilterPanel.setBackground(BG);
+
         fuzzRow.add(fuzzCheck);
         fuzzRow.add(Box.createHorizontalStrut(6));
         fuzzRow.add(depthLbl);
@@ -263,6 +375,11 @@ public class AgentEnumeratorDialog extends JDialog {
         fuzzRow.add(Box.createHorizontalStrut(10));
         fuzzRow.add(browseBtn);
         fuzzRow.add(wordlistLabel);
+        fuzzRow.add(Box.createHorizontalStrut(20));
+        fuzzRow.add(commonPortsCheck);
+        fuzzRow.add(portsField);
+        fuzzRow.add(Box.createHorizontalStrut(16));
+        fuzzRow.add(statusFilterPanel);
         topBar.add(fuzzRow, BorderLayout.SOUTH);
 
         root.add(topBar, BorderLayout.NORTH);
@@ -282,18 +399,23 @@ public class AgentEnumeratorDialog extends JDialog {
         detailPane.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
         detailPane.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
 
+        probePathsBar.setBackground(BG);
+        probePathsBar.setBorder(BorderFactory.createEmptyBorder(2, 6, 4, 6));
+        probePathsBar.setVisible(false);
+
         JPanel detailPanel = new JPanel(new BorderLayout());
         detailPanel.setBackground(BG);
         detailPanel.add(detailHdr,                    BorderLayout.NORTH);
         detailPanel.add(new JScrollPane(detailPane),  BorderLayout.CENTER);
+        detailPanel.add(probePathsBar,                BorderLayout.SOUTH);
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 tableScroll, detailPanel);
         split.setBackground(BG);
         split.setBorder(null);
         split.setDividerSize(4);
-        split.setResizeWeight(0.75);
-        split.setDividerLocation(780);
+        split.setResizeWeight(0.60);
+        split.setDividerLocation(620);
         root.add(split, BorderLayout.CENTER);
 
         // ── Bottom: progress + actions ───────────────────────────────────────
@@ -318,9 +440,15 @@ public class AgentEnumeratorDialog extends JDialog {
         JButton exportBtn = btn("Export Findings", GREEN);
         JButton maxBtn    = btn("⛶ Maximize",      MUTED);
         JButton closeBtn  = btn("Close",           MUTED);
-        exportBtn.addActionListener(e -> exportFindings());
-        maxBtn   .addActionListener(e -> toggleMaximize(maxBtn));
-        closeBtn .addActionListener(e -> dispose());
+        exportBtn  .addActionListener(e -> exportFindings());
+        maxBtn     .addActionListener(e -> toggleMaximize(maxBtn));
+        closeBtn   .addActionListener(e -> dispose());
+        openApiBtn .addActionListener(e -> runOpenApiScan());
+        openApiBtn .setVisible(false);
+        jsBtn      .addActionListener(e -> runJsScan());
+        jsBtn      .setVisible(false);
+        actionRow.add(jsBtn);
+        actionRow.add(openApiBtn);
         actionRow.add(exportBtn);
         actionRow.add(maxBtn);
         actionRow.add(closeBtn);
@@ -346,9 +474,12 @@ public class AgentEnumeratorDialog extends JDialog {
         stopped.set(false);
         scanBtn.setEnabled(false);
         stopBtn.setEnabled(true);
+        openApiBtn.setVisible(false);
+        jsBtn.setVisible(false);
 
-        final String baseUrl    = base;
+        final String baseUrl         = base;
         final List<String> scanPaths = buildScanPaths(); // capture on EDT before thread starts
+        final List<Integer> extraPorts = buildPortList(portsField.getText()); // capture on EDT
 
         worker = new Thread(() -> {
             try {
@@ -359,10 +490,10 @@ public class AgentEnumeratorDialog extends JDialog {
                         : uri.getPort();
                 boolean baseSec  = uri.getScheme().equalsIgnoreCase("https");
 
-                // Build port list: base port first, then extra A2A ports (skip if same)
+                // Build port list: base port first, then common/custom ports
                 java.util.List<Integer> ports = new java.util.ArrayList<>();
                 ports.add(basePort);
-                for (int p : EXTRA_PORTS) {
+                for (int p : extraPorts) {
                     if (p != basePort) ports.add(p);
                 }
                 final int total = ports.size() * scanPaths.size();
@@ -412,30 +543,31 @@ public class AgentEnumeratorDialog extends JDialog {
                                 String headersAll = formatHeaders(hdrs);
                                 String aiHeaders  = extractAiHeaders(hdrs);
 
-                                String type    = detectType(fp, body, ct);
+                                String type    = detectType(fp, body, ct, status);
                                 String summary = extractSummary(fp, body);
                                 if (!aiHeaders.isEmpty())
                                     summary = (summary.isEmpty() ? "" : summary + "  ")
                                             + "[" + aiHeaders.replace("\n", ", ") + "]";
                                 String fullUrl = fs + "://" + fh + fp;
 
-                                Object[] row = {fullUrl, fp, status, type, summary, body, headersAll, aiHeaders};
-                                synchronized (allRows) { allRows.add(row); }
-
                                 final int    st = status;
                                 final String fu = fullUrl, fb = body, ty = type, su = summary;
+                                final String fai = aiHeaders, fha = headersAll;
+                                // Only keep rows that will be shown — avoids storing 100k+ bodies in memory
+                                boolean interesting = isInteresting(st) && !isBurpProxy(fb);
+                                if (interesting || showAllCheck.isSelected()) {
+                                    Object[] row = {fu, fp, st, ty, su, fb, fha, fai};
+                                    synchronized (allRows) { allRows.add(row); }
+                                }
                                 SwingUtilities.invokeLater(() -> {
                                     progressBar.setValue(completed.incrementAndGet());
                                     setStatus("Scanning port " + fport + "  (" + completed.get() + "/" + total + ")");
-                                    if (showAllCheck.isSelected() || (isInteresting(st) && !isBurpProxy(fb))) {
+                                    if (showAllCheck.isSelected() || interesting) {
                                         tableModel.addRow(new Object[]{fu, st, ty, su});
                                         if (table.getRowCount() == 1) table.setRowSelectionInterval(0, 0);
                                     }
                                 });
                             } catch (Exception ex) {
-                                Object[] row = {fs + "://" + fh + fp, fp, 0, "Error",
-                                        ex.getClass().getSimpleName(), "", "", ""};
-                                synchronized (allRows) { allRows.add(row); }
                                 SwingUtilities.invokeLater(() -> progressBar.setValue(completed.incrementAndGet()));
                             }
                         });
@@ -452,12 +584,34 @@ public class AgentEnumeratorDialog extends JDialog {
                 scanBtn.setEnabled(true);
                 stopBtn.setEnabled(false);
                 long hits;
+                List<String> specPaths;
                 synchronized (allRows) {
                     hits = allRows.stream().filter(r -> isInteresting(statusOf(r)) && !isBurpProxy((String) r[5])).count();
+                    specPaths = allRows.stream()
+                            .filter(r -> isInteresting(statusOf(r)) && "OpenAPI Spec".equals(r[3]))
+                            .flatMap(r -> extractOpenApiPaths((String) r[5]).stream())
+                            .distinct()
+                            .collect(java.util.stream.Collectors.toList());
                 }
                 setStatus("Done — " + hits + " interesting endpoint"
                         + (hits == 1 ? "" : "s") + " found across all ports");
                 progressBar.setValue(progressBar.getMaximum());
+                updateStatusFilters();
+                if (!specPaths.isEmpty()) {
+                    openApiBtn.setText("Scan OpenAPI Paths (" + specPaths.size() + ")");
+                    openApiBtn.setVisible(true);
+                } else {
+                    openApiBtn.setVisible(false);
+                }
+                long htmlPages = allRows.stream()
+                        .filter(r -> isInteresting(statusOf(r)) && "HTML Page".equals(r[3]))
+                        .count();
+                if (htmlPages > 0) {
+                    jsBtn.setText("Probe HTML Resources (" + htmlPages + " page" + (htmlPages == 1 ? "" : "s") + ")");
+                    jsBtn.setVisible(true);
+                } else {
+                    jsBtn.setVisible(false);
+                }
             });
         }, "promptslinger-enum");
         worker.setDaemon(true);
@@ -472,6 +626,27 @@ public class AgentEnumeratorDialog extends JDialog {
     }
 
     // ── Wordlist / path building ──────────────────────────────────────────────
+
+    private List<Integer> parseExtraPorts(String raw) {
+        List<Integer> result = new ArrayList<>();
+        if (raw == null || raw.isBlank()) return result;
+        for (String part : raw.split("[,\\s]+")) {
+            try {
+                int p = Integer.parseInt(part.trim());
+                if (p > 0 && p <= 65535) result.add(p);
+            } catch (NumberFormatException ignored) {}
+        }
+        return result;
+    }
+
+    private List<Integer> buildPortList(String customRaw) {
+        java.util.LinkedHashSet<Integer> result = new java.util.LinkedHashSet<>();
+        if (commonPortsCheck.isSelected()) {
+            for (int p : COMMON_PORTS) result.add(p);
+        }
+        result.addAll(parseExtraPorts(customRaw));
+        return new ArrayList<>(result);
+    }
 
     private List<String> buildScanPaths() {
         java.util.LinkedHashSet<String> paths = new java.util.LinkedHashSet<>(List.of(PROBE_PATHS));
@@ -522,6 +697,390 @@ public class AgentEnumeratorDialog extends JDialog {
         }
     }
 
+    // ── OpenAPI path import ───────────────────────────────────────────────────
+
+    private static List<String> extractOpenApiPaths(String specBody) {
+        List<String> paths = new ArrayList<>();
+        if (specBody == null || specBody.isBlank()) return paths;
+        try {
+            JsonNode root = MAPPER.readTree(specBody);
+            JsonNode pathsNode = root.get("paths");
+            if (pathsNode != null)
+                pathsNode.fieldNames().forEachRemaining(paths::add);
+        } catch (Exception ignored) {}
+        return paths;
+    }
+
+    private void runOpenApiScan() {
+        String base = urlField.getText().trim();
+        if (base.isEmpty()) { setStatus("Enter a base URL first."); return; }
+
+        List<String> specPaths;
+        synchronized (allRows) {
+            specPaths = allRows.stream()
+                    .filter(r -> isInteresting(statusOf(r)) && "OpenAPI Spec".equals(r[3]))
+                    .flatMap(r -> extractOpenApiPaths((String) r[5]).stream())
+                    .distinct()
+                    .collect(java.util.stream.Collectors.toList());
+        }
+        if (specPaths.isEmpty()) { setStatus("No OpenAPI paths found to scan."); return; }
+
+        openApiBtn.setVisible(false);
+        scanBtn.setEnabled(false);
+        stopBtn.setEnabled(true);
+        stopped.set(false);
+        setStatus("Scanning " + specPaths.size() + " OpenAPI paths...");
+
+        final List<String> pathsToScan = specPaths;
+        final String baseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+
+        worker = new Thread(() -> {
+            try {
+                java.net.URI uri  = new java.net.URI(baseUrl);
+                String  host     = uri.getHost();
+                int     port     = uri.getPort() == -1
+                        ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
+                boolean secure   = uri.getScheme().equalsIgnoreCase("https");
+                String  hostHdr  = (port == 80 || port == 443) ? host : host + ":" + port;
+                HttpService svc  = HttpService.httpService(host, port, secure);
+                String  scheme   = secure ? "https" : "http";
+
+                final int total = pathsToScan.size();
+                SwingUtilities.invokeLater(() -> {
+                    progressBar.setMaximum(total);
+                    progressBar.setValue(0);
+                });
+
+                AtomicInteger completed = new AtomicInteger(0);
+                ExecutorService pool = Executors.newFixedThreadPool(20);
+
+                for (String probePath : pathsToScan) {
+                    if (stopped.get()) break;
+                    final String fp = probePath.startsWith("/") ? probePath : "/" + probePath;
+                    pool.submit(() -> {
+                        if (stopped.get()) { completed.incrementAndGet(); return; }
+                        try {
+                            String rawReq = "GET " + fp + " HTTP/1.1\r\n"
+                                    + "Host: " + hostHdr + "\r\n"
+                                    + "Accept: application/json, text/plain, */*\r\n"
+                                    + "User-Agent: PromptSlinger-Enumerator/1.0\r\n"
+                                    + "Connection: close\r\n\r\n";
+                            HttpRequestResponse rr = api.http().sendRequest(
+                                    HttpRequest.httpRequest(svc, rawReq));
+                            int    status  = rr.response() != null ? rr.response().statusCode() : 0;
+                            String body    = rr.response() != null ? rr.response().bodyToString() : "";
+                            String ct      = rr.response() != null
+                                    ? (rr.response().headerValue("Content-Type") != null
+                                       ? rr.response().headerValue("Content-Type") : "") : "";
+                            List<HttpHeader> hdrs = rr.response() != null
+                                    ? rr.response().headers() : List.of();
+                            String headersAll = formatHeaders(hdrs);
+                            String aiHeaders  = extractAiHeaders(hdrs);
+                            String type    = detectType(fp, body, ct, status);
+                            String summary = extractSummary(fp, body);
+                            if (!aiHeaders.isEmpty())
+                                summary = (summary.isEmpty() ? "" : summary + "  ")
+                                        + "[" + aiHeaders.replace("\n", ", ") + "]";
+                            String fullUrl = scheme + "://" + hostHdr + fp;
+                            Object[] row = {fullUrl, fp, status, type, summary, body, headersAll, aiHeaders};
+                            synchronized (allRows) { allRows.add(row); }
+                            final int st = status;
+                            final String fu = fullUrl, fb = body, ty = type, su = summary;
+                            SwingUtilities.invokeLater(() -> {
+                                progressBar.setValue(completed.incrementAndGet());
+                                setStatus("OpenAPI scan  (" + completed.get() + "/" + total + ")");
+                                if (showAllCheck.isSelected() || (isInteresting(st) && !isBurpProxy(fb))) {
+                                    tableModel.addRow(new Object[]{fu, st, ty, su});
+                                    if (table.getRowCount() == 1) table.setRowSelectionInterval(0, 0);
+                                }
+                            });
+                        } catch (Exception ex) {
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(completed.incrementAndGet()));
+                        }
+                    });
+                }
+                pool.shutdown();
+                pool.awaitTermination(5, TimeUnit.MINUTES);
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> setStatus("Error: " + ex.getMessage()));
+            }
+            SwingUtilities.invokeLater(() -> {
+                scanBtn.setEnabled(true);
+                stopBtn.setEnabled(false);
+                long hits;
+                synchronized (allRows) {
+                    hits = allRows.stream().filter(r -> isInteresting(statusOf(r)) && !isBurpProxy((String) r[5])).count();
+                }
+                setStatus("OpenAPI scan done — " + hits + " total interesting endpoints");
+                progressBar.setValue(progressBar.getMaximum());
+            });
+        }, "promptslinger-openapi-scan");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    // ── JS resource extraction ────────────────────────────────────────────────
+
+    private static final java.util.regex.Pattern SRC_HREF_PAT =
+            java.util.regex.Pattern.compile(
+                "(?:src|href|action|data-(?:endpoint|url|api|path|href|action|src))\\s*=\\s*[\"']([^\"'#?][^\"']*)[\"']",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    // Matches entire hidden element tags so we can extract all their data-* attributes
+    private static final java.util.regex.Pattern HIDDEN_ELEM_PAT =
+            java.util.regex.Pattern.compile(
+                "<[^>]+(?:\\bhidden\\b|display\\s*:\\s*none|visibility\\s*:\\s*hidden|type\\s*=\\s*[\"']hidden[\"'])[^>]*>",
+                java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
+
+    // Extracts data-* attributes with non-empty values from a tag string
+    private static final java.util.regex.Pattern DATA_ATTR_PAT =
+            java.util.regex.Pattern.compile(
+                "(data-[\\w-]+)\\s*=\\s*[\"']([^\"']+)[\"']",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private static final java.util.regex.Pattern JS_INTEL_PAT =
+            java.util.regex.Pattern.compile(
+                "(?:" +
+                // API-like paths
+                "[\"'`](/(?:api|v\\d|chat|completions|models|auth|admin|config)[^\"'`\\s]{0,80})" +
+                // Bearer / API key patterns
+                "|(?:bearer|api[_-]?key|apikey|token|secret|password)[\"'`]?\\s*[:=]\\s*[\"'`]([A-Za-z0-9_\\-\\.]{8,})" +
+                ")",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private static List<String> extractHtmlResources(String html, String pageBasePath) {
+        if (html == null || html.isBlank()) return List.of();
+        java.util.LinkedHashSet<String> paths = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher m = SRC_HREF_PAT.matcher(html);
+        while (m.find()) {
+            String val = m.group(1).trim();
+            if (val.startsWith("http://") || val.startsWith("https://") || val.startsWith("//"))
+                continue; // skip external URLs
+            if (!val.startsWith("/")) {
+                // relative — resolve against the page base path
+                String base = pageBasePath.contains("/")
+                        ? pageBasePath.substring(0, pageBasePath.lastIndexOf('/') + 1) : "/";
+                val = base + val;
+            }
+            // normalise double slashes
+            val = val.replaceAll("//+", "/");
+            paths.add(val);
+        }
+        return new ArrayList<>(paths);
+    }
+
+    private static String scanJsContent(String js) {
+        if (js == null || js.isBlank()) return "";
+        java.util.LinkedHashSet<String> hits = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher m = JS_INTEL_PAT.matcher(js);
+        while (m.find()) {
+            String apiPath = m.group(1);
+            String secret  = m.group(2);
+            if (apiPath != null && !apiPath.isBlank()) hits.add(apiPath);
+            if (secret  != null && !secret.isBlank())  hits.add("[key?] " + secret.substring(0, Math.min(secret.length(), 12)) + "...");
+            if (hits.size() >= 6) break; // cap summary length
+        }
+        return hits.isEmpty() ? "" : String.join("  |  ", hits);
+    }
+
+    private void probeSinglePath(String path) {
+        String base = urlField.getText().trim();
+        if (base.isEmpty()) { setStatus("Enter a base URL first."); return; }
+        if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        final String fp      = path.startsWith("/") ? path : "/" + path;
+        final String baseUrl = base;
+
+        setStatus("Probing " + fp + " ...");
+        Thread t = new Thread(() -> {
+            try {
+                java.net.URI uri = new java.net.URI(baseUrl);
+                String  host    = uri.getHost();
+                int     port    = uri.getPort() == -1
+                        ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
+                boolean secure  = uri.getScheme().equalsIgnoreCase("https");
+                String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
+                String  scheme  = secure ? "https" : "http";
+                HttpService svc = HttpService.httpService(host, port, secure);
+
+                String rawReq = "GET " + fp + " HTTP/1.1\r\n"
+                        + "Host: " + hostHdr + "\r\n"
+                        + "Accept: application/json, text/plain, */*\r\n"
+                        + "User-Agent: PromptSlinger-Enumerator/1.0\r\n"
+                        + "Connection: close\r\n\r\n";
+                HttpRequestResponse rr = api.http().sendRequest(
+                        HttpRequest.httpRequest(svc, rawReq));
+
+                int    status     = rr.response() != null ? rr.response().statusCode() : 0;
+                String body       = rr.response() != null ? rr.response().bodyToString() : "";
+                String ct         = rr.response() != null
+                        ? (rr.response().headerValue("Content-Type") != null
+                           ? rr.response().headerValue("Content-Type") : "") : "";
+                List<HttpHeader> hdrs = rr.response() != null ? rr.response().headers() : List.of();
+                String headersAll = formatHeaders(hdrs);
+                String aiHeaders  = extractAiHeaders(hdrs);
+                String type       = detectType(fp, body, ct, status);
+                String summary    = "JS Resource".equals(type) ? scanJsContent(body)
+                                  : "HTML Page".equals(type)   ? scanHtmlContent(body)
+                                  : extractSummary(fp, body);
+                if (!aiHeaders.isEmpty())
+                    summary = (summary.isEmpty() ? "" : summary + "  ")
+                            + "[" + aiHeaders.replace("\n", ", ") + "]";
+                String fullUrl = scheme + "://" + hostHdr + fp;
+                Object[] row = {fullUrl, fp, status, type, summary, body, headersAll, aiHeaders};
+                synchronized (allRows) { allRows.add(row); }
+
+                final int st = status; final String fu = fullUrl, fb = body, ty = type, su = summary;
+                SwingUtilities.invokeLater(() -> {
+                    setStatus("Probed " + fp + "  →  HTTP " + st);
+                    if (showAllCheck.isSelected() || (isInteresting(st) && !isBurpProxy(fb))) {
+                        tableModel.addRow(new Object[]{fu, st, ty, su});
+                        int last = table.getRowCount() - 1;
+                        table.setRowSelectionInterval(last, last);
+                    }
+                    // Show the result immediately in the detail pane
+                    renderDetail(aiHeaders, headersAll, body, type);
+                    updateProbePathsBar(fb, ty);
+                });
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> setStatus("Error probing " + fp + ": " + ex.getMessage()));
+            }
+        }, "promptslinger-probe-single");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Returns human-readable findings about hidden elements with data-* attributes. */
+    static String scanHtmlContent(String html) {
+        if (html == null || html.isBlank()) return "";
+        java.util.LinkedHashSet<String> lines = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher elemM = HIDDEN_ELEM_PAT.matcher(html);
+        while (elemM.find()) {
+            String tag = elemM.group();
+            java.util.regex.Matcher attrM = DATA_ATTR_PAT.matcher(tag);
+            while (attrM.find()) {
+                lines.add(attrM.group(1) + ": " + attrM.group(2));
+            }
+        }
+        return String.join("\n", lines);
+    }
+
+    private void runJsScan() {
+        String base = urlField.getText().trim();
+        if (base.isEmpty()) { setStatus("Enter a base URL first."); return; }
+
+        // Collect all resource paths referenced by HTML pages found in the scan
+        java.util.LinkedHashSet<String> resourcePaths = new java.util.LinkedHashSet<>();
+        synchronized (allRows) {
+            for (Object[] r : allRows) {
+                if (isInteresting(statusOf(r)) && "HTML Page".equals(r[3])) {
+                    String probePath  = (String) r[1];
+                    String body       = r.length > 5 ? (String) r[5] : "";
+                    resourcePaths.addAll(extractHtmlResources(body, probePath));
+                }
+            }
+        }
+        // Remove paths already scanned
+        synchronized (allRows) {
+            java.util.Set<String> scanned = new java.util.HashSet<>();
+            for (Object[] r : allRows) scanned.add((String) r[1]);
+            resourcePaths.removeAll(scanned);
+        }
+        if (resourcePaths.isEmpty()) { setStatus("No new resources found in HTML pages."); return; }
+
+        jsBtn.setVisible(false);
+        scanBtn.setEnabled(false);
+        stopBtn.setEnabled(true);
+        stopped.set(false);
+
+        final List<String> paths  = new ArrayList<>(resourcePaths);
+        final String baseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+
+        worker = new Thread(() -> {
+            try {
+                java.net.URI uri = new java.net.URI(baseUrl);
+                String  host    = uri.getHost();
+                int     port    = uri.getPort() == -1
+                        ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
+                boolean secure  = uri.getScheme().equalsIgnoreCase("https");
+                String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
+                HttpService svc = HttpService.httpService(host, port, secure);
+                String  scheme  = secure ? "https" : "http";
+
+                final int total = paths.size();
+                SwingUtilities.invokeLater(() -> {
+                    progressBar.setMaximum(total);
+                    progressBar.setValue(0);
+                    setStatus("Scanning " + total + " discovered resources...");
+                });
+
+                AtomicInteger completed = new AtomicInteger(0);
+                ExecutorService pool = Executors.newFixedThreadPool(20);
+
+                for (String probePath : paths) {
+                    if (stopped.get()) break;
+                    final String fp = probePath;
+                    pool.submit(() -> {
+                        if (stopped.get()) { completed.incrementAndGet(); return; }
+                        try {
+                            String rawReq = "GET " + fp + " HTTP/1.1\r\n"
+                                    + "Host: " + hostHdr + "\r\n"
+                                    + "Accept: */*\r\n"
+                                    + "User-Agent: PromptSlinger-Enumerator/1.0\r\n"
+                                    + "Connection: close\r\n\r\n";
+                            HttpRequestResponse rr = api.http().sendRequest(
+                                    HttpRequest.httpRequest(svc, rawReq));
+                            int    status  = rr.response() != null ? rr.response().statusCode() : 0;
+                            String body    = rr.response() != null ? rr.response().bodyToString() : "";
+                            String ct      = rr.response() != null
+                                    ? (rr.response().headerValue("Content-Type") != null
+                                       ? rr.response().headerValue("Content-Type") : "") : "";
+                            List<HttpHeader> hdrs = rr.response() != null
+                                    ? rr.response().headers() : List.of();
+                            String headersAll = formatHeaders(hdrs);
+                            String aiHeaders  = extractAiHeaders(hdrs);
+                            String type    = detectType(fp, body, ct, status);
+                            // For JS files, scan content for interesting strings
+                            String summary = "JS Resource".equals(type) ? scanJsContent(body) : extractSummary(fp, body);
+                            if (!aiHeaders.isEmpty())
+                                summary = (summary.isEmpty() ? "" : summary + "  ")
+                                        + "[" + aiHeaders.replace("\n", ", ") + "]";
+                            String fullUrl = scheme + "://" + hostHdr + fp;
+                            Object[] row = {fullUrl, fp, status, type, summary, body, headersAll, aiHeaders};
+                            synchronized (allRows) { allRows.add(row); }
+                            final int st = status; final String fu = fullUrl, fb = body, ty = type, su = summary;
+                            SwingUtilities.invokeLater(() -> {
+                                progressBar.setValue(completed.incrementAndGet());
+                                setStatus("JS scan  (" + completed.get() + "/" + total + ")");
+                                if (showAllCheck.isSelected() || (isInteresting(st) && !isBurpProxy(fb))) {
+                                    tableModel.addRow(new Object[]{fu, st, ty, su});
+                                    if (table.getRowCount() == 1) table.setRowSelectionInterval(0, 0);
+                                }
+                            });
+                        } catch (Exception ex) {
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(completed.incrementAndGet()));
+                        }
+                    });
+                }
+                pool.shutdown();
+                pool.awaitTermination(5, TimeUnit.MINUTES);
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> setStatus("Error: " + ex.getMessage()));
+            }
+            SwingUtilities.invokeLater(() -> {
+                scanBtn.setEnabled(true);
+                stopBtn.setEnabled(false);
+                long hits;
+                synchronized (allRows) {
+                    hits = allRows.stream().filter(r -> isInteresting(statusOf(r)) && !isBurpProxy((String) r[5])).count();
+                }
+                setStatus("JS scan done — " + hits + " total interesting endpoints");
+                progressBar.setValue(progressBar.getMaximum());
+            });
+        }, "promptslinger-js-scan");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
     // ── Header fingerprinting helpers ─────────────────────────────────────────
 
     private static final String[] AI_HEADER_PREFIXES = {
@@ -560,7 +1119,10 @@ public class AgentEnumeratorDialog extends JDialog {
 
     // ── Classification helpers ────────────────────────────────────────────────
 
-    private static String detectType(String path, String body, String ct) {
+    private static String detectType(String path, String body, String ct, int status) {
+        if (status == 401)                           return "Auth Required";
+        if (status == 403)                           return "Forbidden";
+        if (status == 405)                           return "POST Required";
         if (path.contains("agent.json"))             return "A2A Agent Card";
         if (path.contains("ai-plugin"))              return "OpenAI Plugin";
         if (path.contains("mcp"))                    return "MCP";
@@ -578,6 +1140,8 @@ public class AgentEnumeratorDialog extends JDialog {
         if (path.contains("capabilities") || path.contains("manifest"))
                                                      return "Capabilities";
         if (ct.contains("text/html"))                return "HTML Page";
+        if (ct.contains("javascript") || path.endsWith(".js"))  return "JS Resource";
+        if (ct.contains("text/css")   || path.endsWith(".css")) return "CSS Resource";
         // Body-based fallbacks
         if (body.contains("\"tools\""))              return "Tool Manifest";
         if (body.contains("\"models\""))             return "Models API";
@@ -650,12 +1214,57 @@ public class AgentEnumeratorDialog extends JDialog {
         tableModel.setRowCount(0);
         synchronized (allRows) {
             for (Object[] r : allRows) {
-                if (showAllCheck.isSelected() || (isInteresting(statusOf(r)) && !isBurpProxy((String) r[5]))) {
-                    tableModel.addRow(new Object[]{r[0], r[2], r[3], r[4]});
+                int st = statusOf(r);
+                boolean passes = showAllCheck.isSelected()
+                        || (isInteresting(st) && !isBurpProxy((String) r[5]));
+                if (passes) {
+                    // Apply status-code checkbox filters (unchecked = hide that code)
+                    JCheckBox cb = statusFilters.get(st);
+                    if (cb == null || cb.isSelected()) {
+                        tableModel.addRow(new Object[]{r[0], r[2], r[3], r[4]});
+                    }
                 }
             }
         }
         if (table.getRowCount() > 0) table.setRowSelectionInterval(0, 0);
+    }
+
+    private void updateStatusFilters() {
+        // Collect unique status codes from current allRows
+        java.util.TreeSet<Integer> codes = new java.util.TreeSet<>();
+        synchronized (allRows) {
+            for (Object[] r : allRows) codes.add(statusOf(r));
+        }
+
+        // Remove codes no longer present; add new ones
+        statusFilters.keySet().retainAll(codes);
+        for (int code : codes) {
+            if (!statusFilters.containsKey(code)) {
+                JCheckBox cb = new JCheckBox(String.valueOf(code), true);
+                cb.setBackground(BG);
+                cb.setFont(new Font("Monospaced", Font.BOLD, Math.max(BASE_SIZE - 3, 9)));
+                cb.setFocusPainted(false);
+                // Color the label to match the status
+                if (code >= 200 && code < 300)        cb.setForeground(GREEN);
+                else if (code == 401 || code == 403)   cb.setForeground(ORANGE);
+                else if (code == 405)                  cb.setForeground(CYAN_405);
+                else if (code >= 500)                  cb.setForeground(RED);
+                else                                   cb.setForeground(MUTED);
+                cb.addActionListener(e -> refreshTableFilter());
+                statusFilters.put(code, cb);
+            }
+        }
+
+        statusFilterPanel.removeAll();
+        if (!statusFilters.isEmpty()) {
+            JLabel lbl = new JLabel("│ Show:");
+            lbl.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 3, 9)));
+            lbl.setForeground(MUTED);
+            statusFilterPanel.add(lbl);
+            for (JCheckBox cb : statusFilters.values()) statusFilterPanel.add(cb);
+        }
+        statusFilterPanel.revalidate();
+        statusFilterPanel.repaint();
     }
 
     // ── Detail pane ───────────────────────────────────────────────────────────
@@ -670,21 +1279,76 @@ public class AgentEnumeratorDialog extends JDialog {
                     String body       = r.length > 5 ? (String) r[5] : "";
                     String headersAll = r.length > 6 ? (String) r[6] : "";
                     String aiHeaders  = r.length > 7 ? (String) r[7] : "";
-                    renderDetail(aiHeaders, headersAll, body);
+                    String type       = r.length > 3 ? (String) r[3] : "";
+                    renderDetail(aiHeaders, headersAll, body, type);
+                    updateProbePathsBar(body, type);
                     return;
                 }
             }
         }
     }
 
-    private void renderDetail(String aiHeaders, String headersAll, String body) {
+    private void updateProbePathsBar(String body, String type) {
+        probePathsBar.removeAll();
+        List<String> paths = new ArrayList<>();
+
+        if ("HTML Page".equals(type) && body != null && !body.isBlank()) {
+            // Re-use scanHtmlContent to extract hidden element paths
+            String findings = scanHtmlContent(body);
+            for (String line : findings.split("\n")) {
+                int idx = line.indexOf(": /");
+                if (idx >= 0) paths.add(line.substring(idx + 2).trim());
+            }
+            // Also extract any JS resource paths from src/href that look like API paths
+            java.util.regex.Matcher m = SRC_HREF_PAT.matcher(body);
+            while (m.find()) {
+                String p = m.group(1);
+                if (p != null && p.startsWith("/api")) paths.add(p);
+            }
+        } else if ("JS Resource".equals(type) && body != null && !body.isBlank()) {
+            String findings = scanJsContent(body);
+            for (String line : findings.split("\n")) {
+                String t = line.trim();
+                if (t.startsWith("/") && !t.contains(" ")) paths.add(t);
+            }
+        }
+
+        // Deduplicate
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>(paths);
+        if (unique.isEmpty()) {
+            probePathsBar.setVisible(false);
+            return;
+        }
+
+        JLabel lbl = new JLabel("Probe discovered:");
+        lbl.setFont(new Font("Monospaced", Font.BOLD, Math.max(BASE_SIZE - 2, 10)));
+        lbl.setForeground(MUTED);
+        probePathsBar.add(lbl);
+
+        for (String path : unique) {
+            final String p = path;
+            JButton b = btn("→ " + p, PINK);
+            b.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 3, 9)));
+            b.addActionListener(e -> probeSinglePath(p));
+            probePathsBar.add(b);
+        }
+
+        probePathsBar.setVisible(true);
+        probePathsBar.revalidate();
+        probePathsBar.repaint();
+    }
+
+    private void renderDetail(String aiHeaders, String headersAll, String body, String type) {
         StyledDocument doc = detailPane.getStyledDocument();
         detailPane.setText("");
 
-        // Style definitions
         SimpleAttributeSet aiSection = new SimpleAttributeSet();
         StyleConstants.setForeground(aiSection, ACCENT);
         StyleConstants.setBold(aiSection, true);
+
+        SimpleAttributeSet htmlSection = new SimpleAttributeSet();
+        StyleConstants.setForeground(htmlSection, GREEN);
+        StyleConstants.setBold(htmlSection, true);
 
         SimpleAttributeSet aiKey = new SimpleAttributeSet();
         StyleConstants.setForeground(aiKey, MUTED);
@@ -693,6 +1357,13 @@ public class AgentEnumeratorDialog extends JDialog {
         StyleConstants.setForeground(aiValue, ORANGE);
         StyleConstants.setBold(aiValue, true);
 
+        SimpleAttributeSet htmlKey = new SimpleAttributeSet();
+        StyleConstants.setForeground(htmlKey, MUTED);
+
+        SimpleAttributeSet htmlValue = new SimpleAttributeSet();
+        StyleConstants.setForeground(htmlValue, GREEN);
+        StyleConstants.setBold(htmlValue, true);
+
         SimpleAttributeSet mutedSection = new SimpleAttributeSet();
         StyleConstants.setForeground(mutedSection, MUTED);
 
@@ -700,6 +1371,25 @@ public class AgentEnumeratorDialog extends JDialog {
         StyleConstants.setForeground(normal, FG);
 
         try {
+            // HTML hidden element findings — shown first if this is an HTML page
+            if ("HTML Page".equals(type)) {
+                String htmlIntel = scanHtmlContent(body);
+                if (!htmlIntel.isBlank()) {
+                    doc.insertString(doc.getLength(), "=== HIDDEN ELEMENT FINDINGS ===\n", htmlSection);
+                    for (String line : htmlIntel.split("\n")) {
+                        int colon = line.indexOf(':');
+                        if (colon > 0) {
+                            doc.insertString(doc.getLength(), line.substring(0, colon + 1), htmlKey);
+                            doc.insertString(doc.getLength(), line.substring(colon + 1) + "\n", htmlValue);
+                        } else {
+                            doc.insertString(doc.getLength(), line + "\n", normal);
+                        }
+                    }
+                    doc.insertString(doc.getLength(), "\n", normal);
+                }
+            }
+
+            // AI-relevant headers
             if (aiHeaders != null && !aiHeaders.isBlank()) {
                 doc.insertString(doc.getLength(), "=== AI-RELEVANT HEADERS ===\n", aiSection);
                 for (String line : aiHeaders.split("\n")) {
@@ -713,6 +1403,7 @@ public class AgentEnumeratorDialog extends JDialog {
                 }
                 doc.insertString(doc.getLength(), "\n", normal);
             }
+
             if (headersAll != null && !headersAll.isBlank()) {
                 doc.insertString(doc.getLength(), "=== RESPONSE HEADERS ===\n", mutedSection);
                 doc.insertString(doc.getLength(), headersAll + "\n", normal);
@@ -849,10 +1540,11 @@ public class AgentEnumeratorDialog extends JDialog {
         t.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
         t.setSelectionBackground(ACCENT);
         t.setSelectionForeground(BG);
-        t.setRowHeight(BASE_SIZE + 8);
+        t.setRowHeight((BASE_SIZE + 4) * 3);  // 3-line rows for summary wrapping
         t.setShowGrid(false);
         t.setIntercellSpacing(new Dimension(0, 0));
         t.setDefaultRenderer(Object.class, new StatusCellRenderer());
+        t.getColumnModel().getColumn(3).setCellRenderer(new SummaryRenderer());
         t.getTableHeader().setBackground(BG);
         t.getTableHeader().setForeground(MUTED);
         t.getTableHeader().setFont(new Font("Monospaced", Font.BOLD,
@@ -860,10 +1552,35 @@ public class AgentEnumeratorDialog extends JDialog {
         t.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showDetail();
         });
+
+        // Right-click on a row → set as target in main PromptSlinger panel
+        JPopupMenu tableMenu = new JPopupMenu();
+        JMenuItem setTargetItem = new JMenuItem("→ Set as Target URL in PromptSlinger");
+        setTargetItem.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        setTargetItem.addActionListener(e -> {
+            int row = t.getSelectedRow();
+            if (row < 0) return;
+            String fullUrl = (String) tableModel.getValueAt(row, 0);
+            if (owner != null) owner.applyEndpoint(fullUrl);
+        });
+        tableMenu.add(setTargetItem);
+        tableMenu.setBackground(SURFACE);
+        t.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mousePressed(java.awt.event.MouseEvent e)  { maybeShow(e); }
+            @Override public void mouseReleased(java.awt.event.MouseEvent e) { maybeShow(e); }
+            private void maybeShow(java.awt.event.MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                int row = t.rowAtPoint(e.getPoint());
+                if (row >= 0) t.setRowSelectionInterval(row, row);
+                tableMenu.show(t, e.getX(), e.getY());
+            }
+        });
+
         // Column widths: Path | Status | Type | Summary
-        int[] w = {160, 56, 130, 430};
+        int[] w = {175, 40, 118, 450};
         for (int i = 0; i < w.length; i++)
             t.getColumnModel().getColumn(i).setPreferredWidth(w[i]);
+        t.getColumnModel().getColumn(1).setMaxWidth(48);  // Status — 3 digits only
         // Click column headers to sort
         javax.swing.table.TableRowSorter<DefaultTableModel> sorter =
                 new javax.swing.table.TableRowSorter<>(tableModel);
@@ -874,7 +1591,8 @@ public class AgentEnumeratorDialog extends JDialog {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static boolean isInteresting(int status) {
-        return status > 0 && status != 404 && status != 400 && status != 405;
+        // 405 = Method Not Allowed → endpoint exists, wrong HTTP method — very interesting
+        return status > 0 && status != 404 && status != 400;
     }
 
     private static boolean isBurpProxy(String body) {
@@ -926,20 +1644,55 @@ public class AgentEnumeratorDialog extends JDialog {
         return b;
     }
 
+    // ── Summary column renderer — word-wrap, up to 3 visible lines ───────────
+
+    private class SummaryRenderer implements javax.swing.table.TableCellRenderer {
+        private final JTextArea area = new JTextArea();
+
+        SummaryRenderer() {
+            area.setLineWrap(true);
+            area.setWrapStyleWord(true);
+            area.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+            area.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
+            area.setOpaque(true);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable tbl, Object value,
+                boolean isSelected, boolean hasFocus, int row, int col) {
+            area.setText(value != null ? value.toString() : "");
+            area.setBackground(isSelected ? ACCENT : SURFACE);
+            area.setForeground(isSelected ? BG : FG);
+            return area;
+        }
+    }
+
     // ── Row colour renderer ───────────────────────────────────────────────────
 
     private class StatusCellRenderer extends DefaultTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(JTable tbl, Object value,
                 boolean isSelected, boolean hasFocus, int row, int col) {
-            // For the URL column, show only the path — host is already visible in the Base URL bar
+            // For the URL column, show path only — but prefix with :PORT when it differs from base URL
             if (col == 0 && value != null) {
                 String url = value.toString();
                 try {
-                    String path = new java.net.URI(url).getRawPath();
-                    String query = new java.net.URI(url).getRawQuery();
-                    value = (path == null || path.isEmpty() ? "/" : path)
+                    java.net.URI uri = new java.net.URI(url);
+                    String path  = uri.getRawPath();
+                    String query = uri.getRawQuery();
+                    int    urlPort  = uri.getPort();
+                    int    basePort = -1;
+                    try {
+                        java.net.URI base = new java.net.URI(urlField.getText().trim());
+                        basePort = base.getPort() == -1
+                                ? (base.getScheme().equalsIgnoreCase("https") ? 443 : 80)
+                                : base.getPort();
+                    } catch (Exception ignored2) {}
+                    String displayPath = (path == null || path.isEmpty() ? "/" : path)
                             + (query != null ? "?" + query : "");
+                    value = (urlPort != -1 && urlPort != basePort)
+                            ? ":" + urlPort + displayPath
+                            : displayPath;
                 } catch (Exception ignored) {}
             }
             super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
@@ -955,11 +1708,26 @@ public class AgentEnumeratorDialog extends JDialog {
                         setBackground(SURFACE); setForeground(GREEN);
                     } else if (status == 401 || status == 403) {
                         setBackground(SURFACE); setForeground(ORANGE);
+                    } else if (status == 405) {
+                        setBackground(SURFACE); setForeground(CYAN_405);
                     } else if (status >= 500) {
                         setBackground(SURFACE); setForeground(RED);
                     } else {
                         setBackground(SURFACE); setForeground(MUTED);
                     }
+                } else if (col == 2) {
+                    String typeVal = value != null ? value.toString() : "";
+                    setBackground(SURFACE);
+                    if ("Auth Required".equals(typeVal) || "Forbidden".equals(typeVal))
+                        setForeground(ORANGE);
+                    else if ("POST Required".equals(typeVal))
+                        setForeground(CYAN_405);
+                    else if ("JS Resource".equals(typeVal))
+                        setForeground(GREEN);
+                    else if ("CSS Resource".equals(typeVal))
+                        setForeground(MUTED);
+                    else
+                        setForeground(FG);
                 } else {
                     setBackground(isSelected ? ACCENT : SURFACE);
                     setForeground(isSelected ? BG : FG);

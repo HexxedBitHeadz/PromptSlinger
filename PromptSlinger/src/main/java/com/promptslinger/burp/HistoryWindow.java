@@ -27,7 +27,6 @@ public class HistoryWindow extends JFrame {
     private JTextArea                msgView;
     private JTextArea                respView;
     private JTextArea                noteEntry;
-    private JButton                  loadBtn;
 
     private int currentIdx = -1;
 
@@ -131,6 +130,19 @@ public class HistoryWindow extends JFrame {
                     }
                 }
             }
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int idx = entryList.getSelectedIndex();
+                    if (idx >= 0) {
+                        List<HistoryEntry> entries = store.getEntries();
+                        if (idx < entries.size()) {
+                            mainPanel.messageArea.setText(
+                                entries.get(idx).message != null ? entries.get(idx).message : "");
+                            dispose();
+                        }
+                    }
+                }
+            }
         });
 
         JScrollPane scroll = new JScrollPane(entryList);
@@ -193,19 +205,6 @@ public class HistoryWindow extends JFrame {
         });
         g.gridy = 5; g.weighty = 0.1;
         p.add(new JScrollPane(noteEntry), g);
-
-        // Load button
-        loadBtn = new JButton("Load message into input →");
-        loadBtn.setBackground(ACCENT);
-        loadBtn.setForeground(BG);
-        loadBtn.setFont(MONO_BOLD);
-        loadBtn.setFocusPainted(false);
-        loadBtn.setBorderPainted(false);
-        loadBtn.setEnabled(false);
-        loadBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        g.gridy = 6; g.weighty = 0; g.fill = GridBagConstraints.NONE;
-        g.anchor = GridBagConstraints.CENTER;
-        p.add(loadBtn, g);
 
         // Copy response button
         JButton copyRespBtn = new JButton("Copy Response");
@@ -299,14 +298,6 @@ public class HistoryWindow extends JFrame {
         respView.setCaretPosition(0);
         noteEntry.setText(e.note != null ? e.note : "");
 
-        loadBtn.setEnabled(true);
-        // Replace action listener each time so we always load the current entry
-        for (java.awt.event.ActionListener al : loadBtn.getActionListeners())
-            loadBtn.removeActionListener(al);
-        loadBtn.addActionListener(ev -> {
-            mainPanel.messageArea.setText(e.message != null ? e.message : "");
-            dispose();
-        });
     }
 
     private void saveCurrentNote() {
@@ -394,7 +385,6 @@ public class HistoryWindow extends JFrame {
         msgView.setText("");
         respView.setText("");
         noteEntry.setText("");
-        loadBtn.setEnabled(false);
         currentIdx = -1;
     }
 

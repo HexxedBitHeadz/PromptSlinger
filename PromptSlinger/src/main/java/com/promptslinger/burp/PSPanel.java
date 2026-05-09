@@ -659,6 +659,12 @@ public class PSPanel extends JPanel {
                 String autoMark = KeywordAlerts.check(plainResp);
                 if (autoMark != null && entry.mark == null) entry.mark = autoMark;
 
+                // Auto-mark FINDING if credential patterns detected in response
+                if (entry.mark == null) {
+                    String credHit = CredentialScanner.scan(plainResp);
+                    if (credHit != null) entry.mark = "FINDING";
+                }
+
                 store.add(entry);
 
                 final String pr         = plainResp;
@@ -1086,7 +1092,8 @@ public class PSPanel extends JPanel {
 
     private String autoDetectField(HttpRequest request) {
         String[] candidates = {"message", "prompt", "query", "input", "text",
-                               "content", "msg", "user_input", "user_message", "parts"};
+                               "content", "msg", "user_input", "user_message", "parts",
+                               "question", "ask", "search", "q"};
         try {
             JsonNode root = mapper.readTree(request.bodyToString());
             // Check top-level candidates first
@@ -1255,6 +1262,70 @@ public class PSPanel extends JPanel {
     void applyEndpoint(String url) {
         urlField.setText(url);
         urlField.setForeground(GREEN);
+
+        // Synthesize a ready-to-use POST request based on the endpoint path pattern.
+        // This avoids requiring the user to proxy a real request first.
+        String path = url.replaceFirst("https?://[^/]+", "");
+        boolean isCompletions = path.contains("/chat/completions") || path.contains("/completions");
+        boolean isEmbeddings  = path.contains("/embeddings") || path.contains("/embed");
+        // RAG-style: /api/chat, /query, /search, /retrieve, /ask, etc.
+        boolean isRagChat     = !isCompletions && !isEmbeddings
+                && (path.matches(".*(chat|query|search|retrieve|ask|answer).*"));
+
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            String host  = uri.getHost();
+            int    port  = uri.getPort() == -1
+                    ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
+            boolean secure = uri.getScheme().equalsIgnoreCase("https");
+            String hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
+
+            String body;
+            String field;
+            String label;
+            if (isCompletions) {
+                body  = "{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"stream\":false}";
+                field = "messages.0.content";
+                label = "OpenAI chat completions";
+            } else if (isEmbeddings) {
+                body  = "{\"input\":\"Hello\"}";
+                field = "input";
+                label = "OpenAI embeddings";
+            } else if (isRagChat) {
+                body  = "{\"query\":\"Hello\"}";
+                field = "query";
+                label = "RAG chat (query field)";
+            } else {
+                body  = "{\"message\":\"Hello\"}";
+                field = "message";
+                label = "generic JSON";
+            }
+
+            String rawReq = "POST " + path + " HTTP/1.1\r\n"
+                    + "Host: " + hostHdr + "\r\n"
+                    + "Content-Type: application/json\r\n"
+                    + "Accept: application/json\r\n"
+                    + "Content-Length: " + body.getBytes().length + "\r\n"
+                    + "Connection: close\r\n"
+                    + "\r\n"
+                    + body;
+
+            HttpService svc = HttpService.httpService(host, port, secure);
+            currentRequest  = HttpRequest.httpRequest(svc, rawReq);
+            methodLabel.setText("POST");
+            methodLabel.setForeground(GREEN);
+            urlField.setEditable(true);
+            fieldNameInput.setText(field);
+            sendBtn.setEnabled(true);
+
+            showInfo("Endpoint configured (" + label + ").\n\n"
+                    + "Message field: " + field + "\n"
+                    + "If the field name is wrong, update it and click Auto-detect or edit manually.");
+            return;
+        } catch (Exception e) {
+            // fall through
+        }
+
         showInfo("Endpoint set: " + url + "\n\nLoad a matching request via Burp Proxy to enable sending.");
     }
 

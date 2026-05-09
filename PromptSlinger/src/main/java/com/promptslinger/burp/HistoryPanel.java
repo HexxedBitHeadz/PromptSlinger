@@ -21,7 +21,7 @@ public class HistoryPanel extends JPanel {
     private JTextArea                      msgArea;
     private JTextArea                      respArea;
     private JTextField                     noteEntry;
-    JButton                                loadBtn;
+
     private JLabel[]                       markChips;
     private JTextField                     searchField;
     private List<HistoryEntry>             allEntries = new ArrayList<>();
@@ -139,6 +139,9 @@ public class HistoryPanel extends JPanel {
                     }
                 }
             }
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) loadIntoInput();
+            }
         });
 
         JScrollPane listScroll = new JScrollPane(histList);
@@ -193,16 +196,6 @@ public class HistoryPanel extends JPanel {
         detail.add(noteEntry, g);
 
         g.gridy = 6; g.weighty = 0;
-        loadBtn = new JButton("Load message into input →");
-        loadBtn.setBackground(ACCENT);
-        loadBtn.setForeground(BG);
-        loadBtn.setFont(new Font("Monospaced", Font.BOLD, BASE_SIZE - 1));
-        loadBtn.setFocusPainted(false);
-        loadBtn.setBorderPainted(false);
-        loadBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        loadBtn.addActionListener(e -> loadIntoInput());
-        detail.add(loadBtn, g);
-
         g.gridy = 7; g.weighty = 0;
         JButton copyRespBtn = new JButton("Copy Response");
         copyRespBtn.setBackground(SURFACE);

@@ -20,7 +20,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
@@ -699,6 +698,96 @@ public class AgentEnumeratorDialog extends JDialog {
 
     // ── OpenAPI path import ───────────────────────────────────────────────────
 
+    private String findSpecBodyForOrigin(String targetUrl) {
+        try {
+            java.net.URI uri = new java.net.URI(targetUrl);
+            String origin = uri.getScheme() + "://" + uri.getHost()
+                    + (uri.getPort() == -1 ? "" : ":" + uri.getPort());
+            synchronized (allRows) {
+                for (Object[] r : allRows) {
+                    if ("OpenAPI Spec".equals(r[3]) && ((String) r[0]).startsWith(origin))
+                        return (String) r[5];
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String extractMessageFieldFromSpec(String specBody, String targetPath) {
+        try {
+            JsonNode root  = MAPPER.readTree(specBody);
+            JsonNode paths = root.get("paths");
+            if (paths == null) return null;
+
+            // Find the path node — exact match first, then suffix match
+            JsonNode pathNode = paths.get(targetPath);
+            if (pathNode == null) {
+                for (java.util.Iterator<String> it = paths.fieldNames(); it.hasNext();) {
+                    String p = it.next();
+                    if (targetPath.equals(p) || targetPath.endsWith(p)) {
+                        pathNode = paths.get(p);
+                        break;
+                    }
+                }
+            }
+            if (pathNode == null) return null;
+
+            // Drill into POST -> requestBody -> content -> application/json -> schema -> properties
+            JsonNode schema = pathNode.path("post")
+                    .path("requestBody").path("content")
+                    .path("application/json").path("schema");
+            if (schema.isMissingNode()) return null;
+
+            JsonNode props = schema.get("properties");
+            if (props == null || !props.isObject()) return null;
+
+            // Prefer known names in priority order, fall back to first property
+            for (String candidate : new String[]{"message", "query", "prompt", "input", "text", "content"})
+                if (props.has(candidate)) return candidate;
+            java.util.Iterator<String> names = props.fieldNames();
+            return names.hasNext() ? names.next() : null;
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String probeMessageField(String targetUrl) {
+        try {
+            java.net.URI uri  = new java.net.URI(targetUrl);
+            String  host    = uri.getHost();
+            int     port    = uri.getPort() == -1
+                    ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
+            boolean secure  = uri.getScheme().equalsIgnoreCase("https");
+            String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
+            String  path    = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+            HttpService svc = HttpService.httpService(host, port, secure);
+
+            for (String candidate : new String[]{"message", "query", "prompt", "input", "text", "content"}) {
+                String body = "{\"" + candidate + "\": \"test\"}";
+                String rawReq = "POST " + path + " HTTP/1.1\r\n"
+                        + "Host: " + hostHdr + "\r\n"
+                        + "Content-Type: application/json\r\n"
+                        + "Accept: application/json\r\n"
+                        + "Content-Length: " + body.getBytes().length + "\r\n"
+                        + "Connection: close\r\n\r\n"
+                        + body;
+                HttpRequestResponse rr = api.http().sendRequest(
+                        HttpRequest.httpRequest(svc, rawReq));
+                if (rr.response() == null) continue;
+                int    status   = rr.response().statusCode();
+                String respBody = rr.response().bodyToString();
+                // 422 = FastAPI validation error (wrong/missing field) — skip
+                // "error" key in JSON = application-level rejection — skip
+                if (status == 422) continue;
+                try {
+                    JsonNode node = MAPPER.readTree(respBody);
+                    if (node.has("error")) continue;
+                } catch (Exception ignored) {}
+                return candidate;
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
     private static List<String> extractOpenApiPaths(String specBody) {
         List<String> paths = new ArrayList<>();
         if (specBody == null || specBody.isBlank()) return paths;
@@ -712,40 +801,36 @@ public class AgentEnumeratorDialog extends JDialog {
     }
 
     private void runOpenApiScan() {
-        String base = urlField.getText().trim();
-        if (base.isEmpty()) { setStatus("Enter a base URL first."); return; }
+        if (urlField.getText().trim().isEmpty()) { setStatus("Enter a base URL first."); return; }
 
-        List<String> specPaths;
+        // Build full URLs: combine each spec's origin (scheme://host:port) with its paths,
+        // so each path is probed against the port where its spec was actually discovered.
+        java.util.LinkedHashSet<String> urlSet = new java.util.LinkedHashSet<>();
         synchronized (allRows) {
-            specPaths = allRows.stream()
-                    .filter(r -> isInteresting(statusOf(r)) && "OpenAPI Spec".equals(r[3]))
-                    .flatMap(r -> extractOpenApiPaths((String) r[5]).stream())
-                    .distinct()
-                    .collect(java.util.stream.Collectors.toList());
+            for (Object[] r : allRows) {
+                if (!isInteresting(statusOf(r)) || !"OpenAPI Spec".equals(r[3])) continue;
+                try {
+                    java.net.URI src = new java.net.URI((String) r[0]);
+                    String origin = src.getScheme() + "://" + src.getHost()
+                            + (src.getPort() == -1 ? "" : ":" + src.getPort());
+                    for (String p : extractOpenApiPaths((String) r[5]))
+                        urlSet.add(origin + (p.startsWith("/") ? p : "/" + p));
+                } catch (Exception ignored) {}
+            }
         }
-        if (specPaths.isEmpty()) { setStatus("No OpenAPI paths found to scan."); return; }
+        if (urlSet.isEmpty()) { setStatus("No OpenAPI paths found to scan."); return; }
 
         openApiBtn.setVisible(false);
         scanBtn.setEnabled(false);
         stopBtn.setEnabled(true);
         stopped.set(false);
-        setStatus("Scanning " + specPaths.size() + " OpenAPI paths...");
+        setStatus("Scanning " + urlSet.size() + " OpenAPI paths across discovered ports...");
 
-        final List<String> pathsToScan = specPaths;
-        final String baseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        final List<String> urlsToScan = new ArrayList<>(urlSet);
 
         worker = new Thread(() -> {
             try {
-                java.net.URI uri  = new java.net.URI(baseUrl);
-                String  host     = uri.getHost();
-                int     port     = uri.getPort() == -1
-                        ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
-                boolean secure   = uri.getScheme().equalsIgnoreCase("https");
-                String  hostHdr  = (port == 80 || port == 443) ? host : host + ":" + port;
-                HttpService svc  = HttpService.httpService(host, port, secure);
-                String  scheme   = secure ? "https" : "http";
-
-                final int total = pathsToScan.size();
+                final int total = urlsToScan.size();
                 SwingUtilities.invokeLater(() -> {
                     progressBar.setMaximum(total);
                     progressBar.setValue(0);
@@ -754,12 +839,22 @@ public class AgentEnumeratorDialog extends JDialog {
                 AtomicInteger completed = new AtomicInteger(0);
                 ExecutorService pool = Executors.newFixedThreadPool(20);
 
-                for (String probePath : pathsToScan) {
+                for (String targetUrl : urlsToScan) {
                     if (stopped.get()) break;
-                    final String fp = probePath.startsWith("/") ? probePath : "/" + probePath;
                     pool.submit(() -> {
                         if (stopped.get()) { completed.incrementAndGet(); return; }
                         try {
+                            java.net.URI uri = new java.net.URI(targetUrl);
+                            String  host    = uri.getHost();
+                            int     port    = uri.getPort() == -1
+                                    ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80)
+                                    : uri.getPort();
+                            boolean secure  = uri.getScheme().equalsIgnoreCase("https");
+                            String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
+                            String  fp      = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+                            if (uri.getRawQuery() != null) fp += "?" + uri.getRawQuery();
+                            HttpService svc = HttpService.httpService(host, port, secure);
+
                             String rawReq = "GET " + fp + " HTTP/1.1\r\n"
                                     + "Host: " + hostHdr + "\r\n"
                                     + "Accept: application/json, text/plain, */*\r\n"
@@ -781,11 +876,10 @@ public class AgentEnumeratorDialog extends JDialog {
                             if (!aiHeaders.isEmpty())
                                 summary = (summary.isEmpty() ? "" : summary + "  ")
                                         + "[" + aiHeaders.replace("\n", ", ") + "]";
-                            String fullUrl = scheme + "://" + hostHdr + fp;
-                            Object[] row = {fullUrl, fp, status, type, summary, body, headersAll, aiHeaders};
+                            Object[] row = {targetUrl, fp, status, type, summary, body, headersAll, aiHeaders};
                             synchronized (allRows) { allRows.add(row); }
                             final int st = status;
-                            final String fu = fullUrl, fb = body, ty = type, su = summary;
+                            final String fu = targetUrl, fb = body, ty = type, su = summary;
                             SwingUtilities.invokeLater(() -> {
                                 progressBar.setValue(completed.incrementAndGet());
                                 setStatus("OpenAPI scan  (" + completed.get() + "/" + total + ")");
@@ -811,7 +905,7 @@ public class AgentEnumeratorDialog extends JDialog {
                 synchronized (allRows) {
                     hits = allRows.stream().filter(r -> isInteresting(statusOf(r)) && !isBurpProxy((String) r[5])).count();
                 }
-                setStatus("OpenAPI scan done — " + hits + " total interesting endpoints");
+                setStatus("OpenAPI scan done - " + hits + " total interesting endpoints");
                 progressBar.setValue(progressBar.getMaximum());
             });
         }, "promptslinger-openapi-scan");
@@ -965,63 +1059,67 @@ public class AgentEnumeratorDialog extends JDialog {
     }
 
     private void runJsScan() {
-        String base = urlField.getText().trim();
-        if (base.isEmpty()) { setStatus("Enter a base URL first."); return; }
+        if (urlField.getText().trim().isEmpty()) { setStatus("Enter a base URL first."); return; }
 
-        // Collect all resource paths referenced by HTML pages found in the scan
-        java.util.LinkedHashSet<String> resourcePaths = new java.util.LinkedHashSet<>();
+        // Build full URLs: for each discovered HTML page, prefix its resources with that
+        // page's own origin (scheme://host:port) so they're probed on the right port.
+        java.util.LinkedHashSet<String> resourceUrls = new java.util.LinkedHashSet<>();
+        java.util.Set<String> alreadyScanned = new java.util.HashSet<>();
         synchronized (allRows) {
+            for (Object[] r : allRows) alreadyScanned.add((String) r[0]);
             for (Object[] r : allRows) {
-                if (isInteresting(statusOf(r)) && "HTML Page".equals(r[3])) {
-                    String probePath  = (String) r[1];
-                    String body       = r.length > 5 ? (String) r[5] : "";
-                    resourcePaths.addAll(extractHtmlResources(body, probePath));
-                }
+                if (!isInteresting(statusOf(r)) || !"HTML Page".equals(r[3])) continue;
+                String probePath = (String) r[1];
+                String body      = r.length > 5 ? (String) r[5] : "";
+                try {
+                    java.net.URI src = new java.net.URI((String) r[0]);
+                    String origin = src.getScheme() + "://" + src.getHost()
+                            + (src.getPort() == -1 ? "" : ":" + src.getPort());
+                    for (String path : extractHtmlResources(body, probePath)) {
+                        String candidate = origin + path;
+                        if (!alreadyScanned.contains(candidate)) resourceUrls.add(candidate);
+                    }
+                } catch (Exception ignored) {}
             }
         }
-        // Remove paths already scanned
-        synchronized (allRows) {
-            java.util.Set<String> scanned = new java.util.HashSet<>();
-            for (Object[] r : allRows) scanned.add((String) r[1]);
-            resourcePaths.removeAll(scanned);
-        }
-        if (resourcePaths.isEmpty()) { setStatus("No new resources found in HTML pages."); return; }
+        if (resourceUrls.isEmpty()) { setStatus("No new resources found in HTML pages."); return; }
 
         jsBtn.setVisible(false);
         scanBtn.setEnabled(false);
         stopBtn.setEnabled(true);
         stopped.set(false);
 
-        final List<String> paths  = new ArrayList<>(resourcePaths);
-        final String baseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        final List<String> urlsToScan = new ArrayList<>(resourceUrls);
 
+        AtomicInteger newHits = new AtomicInteger(0);
         worker = new Thread(() -> {
             try {
-                java.net.URI uri = new java.net.URI(baseUrl);
-                String  host    = uri.getHost();
-                int     port    = uri.getPort() == -1
-                        ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
-                boolean secure  = uri.getScheme().equalsIgnoreCase("https");
-                String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
-                HttpService svc = HttpService.httpService(host, port, secure);
-                String  scheme  = secure ? "https" : "http";
-
-                final int total = paths.size();
+                final int total = urlsToScan.size();
                 SwingUtilities.invokeLater(() -> {
                     progressBar.setMaximum(total);
                     progressBar.setValue(0);
-                    setStatus("Scanning " + total + " discovered resources...");
+                    setStatus("Scanning " + total + " discovered resources across ports...");
                 });
 
                 AtomicInteger completed = new AtomicInteger(0);
                 ExecutorService pool = Executors.newFixedThreadPool(20);
 
-                for (String probePath : paths) {
+                for (String targetUrl : urlsToScan) {
                     if (stopped.get()) break;
-                    final String fp = probePath;
                     pool.submit(() -> {
                         if (stopped.get()) { completed.incrementAndGet(); return; }
                         try {
+                            java.net.URI uri = new java.net.URI(targetUrl);
+                            String  host    = uri.getHost();
+                            int     port    = uri.getPort() == -1
+                                    ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80)
+                                    : uri.getPort();
+                            boolean secure  = uri.getScheme().equalsIgnoreCase("https");
+                            String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
+                            String  fp      = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+                            if (uri.getRawQuery() != null) fp += "?" + uri.getRawQuery();
+                            HttpService svc = HttpService.httpService(host, port, secure);
+
                             String rawReq = "GET " + fp + " HTTP/1.1\r\n"
                                     + "Host: " + hostHdr + "\r\n"
                                     + "Accept: */*\r\n"
@@ -1039,19 +1137,20 @@ public class AgentEnumeratorDialog extends JDialog {
                             String headersAll = formatHeaders(hdrs);
                             String aiHeaders  = extractAiHeaders(hdrs);
                             String type    = detectType(fp, body, ct, status);
-                            // For JS files, scan content for interesting strings
                             String summary = "JS Resource".equals(type) ? scanJsContent(body) : extractSummary(fp, body);
                             if (!aiHeaders.isEmpty())
                                 summary = (summary.isEmpty() ? "" : summary + "  ")
                                         + "[" + aiHeaders.replace("\n", ", ") + "]";
-                            String fullUrl = scheme + "://" + hostHdr + fp;
-                            Object[] row = {fullUrl, fp, status, type, summary, body, headersAll, aiHeaders};
+                            Object[] row = {targetUrl, fp, status, type, summary, body, headersAll, aiHeaders};
                             synchronized (allRows) { allRows.add(row); }
-                            final int st = status; final String fu = fullUrl, fb = body, ty = type, su = summary;
+                            boolean interesting = isInteresting(status) && !isBurpProxy(body);
+                            if (interesting) newHits.incrementAndGet();
+                            final int st = status;
+                            final String fu = targetUrl, fb = body, ty = type, su = summary;
                             SwingUtilities.invokeLater(() -> {
                                 progressBar.setValue(completed.incrementAndGet());
                                 setStatus("JS scan  (" + completed.get() + "/" + total + ")");
-                                if (showAllCheck.isSelected() || (isInteresting(st) && !isBurpProxy(fb))) {
+                                if (showAllCheck.isSelected() || interesting) {
                                     tableModel.addRow(new Object[]{fu, st, ty, su});
                                     if (table.getRowCount() == 1) table.setRowSelectionInterval(0, 0);
                                 }
@@ -1069,11 +1168,10 @@ public class AgentEnumeratorDialog extends JDialog {
             SwingUtilities.invokeLater(() -> {
                 scanBtn.setEnabled(true);
                 stopBtn.setEnabled(false);
-                long hits;
-                synchronized (allRows) {
-                    hits = allRows.stream().filter(r -> isInteresting(statusOf(r)) && !isBurpProxy((String) r[5])).count();
-                }
-                setStatus("JS scan done — " + hits + " total interesting endpoints");
+                int n = newHits.get();
+                setStatus(n == 0
+                        ? "JS scan done - no new resources found (pages appear self-contained)"
+                        : "JS scan done - " + n + " new resource" + (n == 1 ? "" : "s") + " found");
                 progressBar.setValue(progressBar.getMaximum());
             });
         }, "promptslinger-js-scan");
@@ -1272,7 +1370,7 @@ public class AgentEnumeratorDialog extends JDialog {
     private void showDetail() {
         int sel = table.getSelectedRow();
         if (sel < 0) return;
-        String fullUrl = (String) tableModel.getValueAt(sel, 0);
+        String fullUrl = (String) tableModel.getValueAt(table.convertRowIndexToModel(sel), 0);
         synchronized (allRows) {
             for (Object[] r : allRows) {
                 if (fullUrl.equals(r[0])) {
@@ -1427,7 +1525,7 @@ public class AgentEnumeratorDialog extends JDialog {
     private void applySelectedUrl() {
         int sel = table.getSelectedRow();
         if (sel < 0) { setStatus("Select a row first."); return; }
-        String fullUrl = (String) tableModel.getValueAt(sel, 0);
+        String fullUrl = (String) tableModel.getValueAt(table.convertRowIndexToModel(sel), 0);
         synchronized (allRows) {
             for (Object[] r : allRows) {
                 if (fullUrl.equals(r[0])) {
@@ -1442,7 +1540,7 @@ public class AgentEnumeratorDialog extends JDialog {
     private void copySelectedUrl() {
         int sel = table.getSelectedRow();
         if (sel < 0) { setStatus("Select a row first."); return; }
-        String fullUrl = (String) tableModel.getValueAt(sel, 0);
+        String fullUrl = (String) tableModel.getValueAt(table.convertRowIndexToModel(sel), 0);
         synchronized (allRows) {
             for (Object[] r : allRows) {
                 if (fullUrl.equals(r[0])) {
@@ -1560,8 +1658,29 @@ public class AgentEnumeratorDialog extends JDialog {
         setTargetItem.addActionListener(e -> {
             int row = t.getSelectedRow();
             if (row < 0) return;
-            String fullUrl = (String) tableModel.getValueAt(row, 0);
-            if (owner != null) owner.applyEndpoint(fullUrl);
+            String fullUrl = (String) tableModel.getValueAt(t.convertRowIndexToModel(row), 0);
+            if (owner != null) {
+                owner.applyEndpoint(fullUrl);
+                // Detect the message field in the background — spec first, probe fallback
+                final String fu = fullUrl;
+                Thread detector = new Thread(() -> {
+                    try {
+                        java.net.URI uri = new java.net.URI(fu);
+                        String specBody = findSpecBodyForOrigin(fu);
+                        String field = null;
+                        if (specBody != null)
+                            field = extractMessageFieldFromSpec(specBody, uri.getRawPath());
+                        if (field == null)
+                            field = probeMessageField(fu);
+                        if (field != null) {
+                            final String f = field;
+                            SwingUtilities.invokeLater(() -> owner.applyMessageField(f));
+                        }
+                    } catch (Exception ignored) {}
+                }, "promptslinger-field-detect");
+                detector.setDaemon(true);
+                detector.start();
+            }
         });
         tableMenu.add(setTargetItem);
         tableMenu.setBackground(SURFACE);
@@ -1680,18 +1799,11 @@ public class AgentEnumeratorDialog extends JDialog {
                     java.net.URI uri = new java.net.URI(url);
                     String path  = uri.getRawPath();
                     String query = uri.getRawQuery();
-                    int    urlPort  = uri.getPort();
-                    int    basePort = -1;
-                    try {
-                        java.net.URI base = new java.net.URI(urlField.getText().trim());
-                        basePort = base.getPort() == -1
-                                ? (base.getScheme().equalsIgnoreCase("https") ? 443 : 80)
-                                : base.getPort();
-                    } catch (Exception ignored2) {}
+                    int    port  = uri.getPort();
                     String displayPath = (path == null || path.isEmpty() ? "/" : path)
                             + (query != null ? "?" + query : "");
-                    value = (urlPort != -1 && urlPort != basePort)
-                            ? ":" + urlPort + displayPath
+                    value = (port != -1 && port != 80 && port != 443)
+                            ? ":" + port + displayPath
                             : displayPath;
                 } catch (Exception ignored) {}
             }

@@ -312,9 +312,9 @@ public class PayloadLibrary {
 
     public static List<Payload> getByCategory(String category) {
         if ("Custom".equals(category)) return Collections.unmodifiableList(custom);
-        return BUILTIN.stream()
+        return Collections.unmodifiableList(BUILTIN.stream()
                 .filter(p -> category.equals(p.category))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     public static void addCustom(Payload p) {

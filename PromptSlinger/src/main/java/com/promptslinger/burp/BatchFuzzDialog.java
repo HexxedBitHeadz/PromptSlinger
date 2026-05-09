@@ -15,7 +15,6 @@ import java.io.File;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.promptslinger.burp.PSPanel.*;
@@ -38,7 +37,6 @@ public class BatchFuzzDialog extends JDialog {
     private final DefaultTableModel  tableModel;
     private final JTable             resultTable;
 
-    private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean stopped = new AtomicBoolean(false);
     private       Thread        worker;
     private java.awt.Rectangle  savedBounds = null;
@@ -47,6 +45,7 @@ public class BatchFuzzDialog extends JDialog {
     private final JTextArea                        detailArea        = new JTextArea();
     private final JCheckBox                        multiTurnCheck    = new JCheckBox("Multi-turn");
 
+    private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private static final String[] COLS = {"#", "Payload", "Status", "Latency", "Response Preview", "Mark"};
 
     private static final String DEFAULT_PAYLOADS =
@@ -397,8 +396,6 @@ public class BatchFuzzDialog extends JDialog {
 
         int delayMs = (int) delaySpinner.getValue();
 
-        ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-
         worker = new Thread(() -> {
             String batchId = new SimpleDateFormat("HHmmss").format(new Date());
             for (int i = 0; i < payloads.size(); i++) {
@@ -410,7 +407,7 @@ public class BatchFuzzDialog extends JDialog {
 
                 try {
                     String   body = baseRequest.bodyToString();
-                    JsonNode root = mapper.readTree(body);
+                    JsonNode root = MAPPER.readTree(body);
                     if (!(root instanceof ObjectNode on))
                         throw new IllegalStateException("Request body is not a JSON object.");
                     PSPanel.injectAtPath(root, fieldName, payload);
@@ -419,14 +416,14 @@ public class BatchFuzzDialog extends JDialog {
 
                     // Multi-turn: inject accumulated conversation history
                     if (multiTurnCheck.isSelected() && !conversationTurns.isEmpty()) {
-                        com.fasterxml.jackson.databind.node.ArrayNode msgArr = mapper.createArrayNode();
+                        com.fasterxml.jackson.databind.node.ArrayNode msgArr = MAPPER.createArrayNode();
                         for (Map<String,String> turn : conversationTurns) {
-                            com.fasterxml.jackson.databind.node.ObjectNode m = mapper.createObjectNode();
+                            com.fasterxml.jackson.databind.node.ObjectNode m = MAPPER.createObjectNode();
                             m.put("role",    turn.get("role"));
                             m.put("content", turn.get("content"));
                             msgArr.add(m);
                         }
-                        com.fasterxml.jackson.databind.node.ObjectNode cur = mapper.createObjectNode();
+                        com.fasterxml.jackson.databind.node.ObjectNode cur = MAPPER.createObjectNode();
                         cur.put("role",    "user");
                         cur.put("content", payload);
                         msgArr.add(cur);
@@ -446,7 +443,7 @@ public class BatchFuzzDialog extends JDialog {
                             .withService(HttpService.httpService(host, port, secure))
                             .withPath(path)
                             .withUpdatedHeader("Host", hostHeader)
-                            .withBody(mapper.writeValueAsString(on));
+                            .withBody(MAPPER.writeValueAsString(on));
 
                     long t0 = System.currentTimeMillis();
                     String rawResp;
@@ -469,8 +466,8 @@ public class BatchFuzzDialog extends JDialog {
                     String pretty;
                     String plainResp;
                     try {
-                        JsonNode parsed = mapper.readTree(rawResp);
-                        pretty = mapper.writeValueAsString(parsed);
+                        JsonNode parsed = MAPPER.readTree(rawResp);
+                        pretty = MAPPER.writeValueAsString(parsed);
                         String extracted = ResponseExtractor.extract(parsed);
                         plainResp = extracted != null ? extracted : pretty;
                     } catch (Exception ex) {

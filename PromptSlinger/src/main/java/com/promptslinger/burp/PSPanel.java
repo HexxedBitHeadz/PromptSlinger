@@ -1329,4 +1329,12 @@ public class PSPanel extends JPanel {
         showInfo("Endpoint set: " + url + "\n\nLoad a matching request via Burp Proxy to enable sending.");
     }
 
+    void applyMessageField(String field) {
+        if (field == null || field.isBlank()) return;
+        fieldNameInput.setText(field);
+        showInfo("Message field auto-detected: \"" + field + "\"\n\n"
+                + "Detected by probing the endpoint with common field names. "
+                + "Update manually if incorrect.");
+    }
+
 }

@@ -525,6 +525,7 @@ public class PSPanel extends JPanel {
     private void sendRequest() {
         if (activeWorker != null) {
             activeWorker.interrupt();
+            resetSendButton();   // don't wait for the blocked thread — unblock the UI now
             return;
         }
         if (currentRequest == null) {
@@ -567,7 +568,8 @@ public class PSPanel extends JPanel {
 
                 injectAtPath(root, fieldName, finalMessage);
                 on.put("stream", false);
-                if (currentSessionId != null && on.has("session_id"))
+                RequestSanitizer.stripOrchestrationFields(on);
+                if (currentSessionId != null)
                     on.put("session_id", currentSessionId);
 
                 // Inject messages array for multi-turn mode
@@ -643,11 +645,11 @@ public class PSPanel extends JPanel {
                 String newSess         = newSessionId;
                 String ts              = new SimpleDateFormat("HH:mm:ss").format(new Date());
 
-                // Determine plain response text — try SSE assembly, then JSON field, then raw
-                String plainResp = (parsed instanceof ObjectNode op2 && op2.has("response"))
-                        ? op2.get("response").asText() : pretty;
+                // Determine plain response text — extractor covers all known formats
+                String extracted = ResponseExtractor.extract(parsed);
                 String sseAssembled = SseParser.assemble(rawResp);
-                if (sseAssembled != null && !sseAssembled.isBlank()) plainResp = sseAssembled;
+                String plainResp = sseAssembled != null && !sseAssembled.isBlank() ? sseAssembled
+                        : extracted != null ? extracted : pretty;
 
                 HistoryEntry entry = new HistoryEntry(ts, currentRequest.url(),
                         capturedMessage, displayText, currentProxyItem, currentRequest, fieldName);
@@ -723,16 +725,17 @@ public class PSPanel extends JPanel {
         try {
             doc.remove(0, doc.getLength());
 
-            if (parsed != null && parsed.has("response")) {
-                doc.insertString(doc.getLength(), "RESPONSE\n",                     labelStyle);
-                doc.insertString(doc.getLength(), parsed.get("response").asText() + "\n", prominentStyle);
-                doc.insertString(doc.getLength(), "─".repeat(60) + "\n",           separatorStyle);
-                doc.insertString(doc.getLength(), "RAW JSON\n",                    labelStyle);
+            String extractedResp = ResponseExtractor.extract(parsed);
+            if (extractedResp != null) {
+                doc.insertString(doc.getLength(), "RESPONSE\n",              labelStyle);
+                doc.insertString(doc.getLength(), extractedResp + "\n",      prominentStyle);
+                doc.insertString(doc.getLength(), "─".repeat(60) + "\n",     separatorStyle);
+                doc.insertString(doc.getLength(), "RAW JSON\n",              labelStyle);
             }
 
             int jsonStart = doc.getLength();
             doc.insertString(jsonStart, pretty, mutedStyle);
-            applyJsonHighlighting(doc, jsonStart, pretty);
+            if (pretty.length() < 50_000) applyJsonHighlighting(doc, jsonStart, pretty);
 
         } catch (BadLocationException ignored) {}
 

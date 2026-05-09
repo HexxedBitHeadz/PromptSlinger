@@ -151,7 +151,8 @@ public class CompareDialog extends JDialog {
                         throw new IllegalStateException("Request body is not a JSON object.");
                     PSPanel.injectAtPath(root, slot.fieldName, finalMessage);
                     on.put("stream", false);
-                    if (slot.sessionId != null && on.has("session_id"))
+                    RequestSanitizer.stripOrchestrationFields(on);
+                    if (slot.sessionId != null)
                         on.put("session_id", slot.sessionId);
 
                     java.net.URI uri    = new java.net.URI(slot.url);
@@ -189,14 +190,13 @@ public class CompareDialog extends JDialog {
                     try {
                         JsonNode parsed = mapper.readTree(rawResp);
                         pretty    = mapper.writeValueAsString(parsed);
-                        plainResp = (parsed instanceof ObjectNode op && op.has("response"))
-                                ? op.get("response").asText() : pretty;
+                        String extracted = ResponseExtractor.extract(parsed);
+                        plainResp = extracted != null ? extracted : pretty;
                     } catch (Exception ex) {
                         pretty    = rawResp;
                         plainResp = rawResp;
                     }
 
-                    boolean isSse  = false;
                     String display = plainResp;
 
                     String ts = new SimpleDateFormat("HH:mm:ss").format(new Date());
@@ -208,15 +208,13 @@ public class CompareDialog extends JDialog {
                     if (autoMark != null) entry.mark = autoMark;
                     store.add(entry);
 
-                    final String dc     = display;
-                    final long   lat    = latencyMs;
-                    final boolean wasSse = isSse;
-                    final String  mark   = entry.mark;
+                    final String dc   = display;
+                    final long   lat  = latencyMs;
+                    final String mark = entry.mark;
                     SwingUtilities.invokeLater(() -> {
                         responsePanes[idx].setText(dc);
                         responsePanes[idx].setCaretPosition(0);
                         String statusText = "  " + lat + "ms"
-                                + (wasSse ? "  [SSE assembled]" : "")
                                 + (mark != null ? "  [" + mark + "]" : "");
                         statusLabels[idx].setText(statusText);
                         statusLabels[idx].setForeground(GREEN);

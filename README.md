@@ -91,6 +91,16 @@ If a target returns a `403` with an "unusual activity" or bot-detection message 
 - Batch Send results are tagged `[Batch:hhmmss]` in History for easy filtering
 - Keyword Alerts auto-mark responses — useful for spotting successful injections in large runs
 
+### Loading the right request (Open WebUI / chat platforms)
+
+Some platforms issue several HTTP requests per turn. Only one of them triggers the LLM — the others are UI bookkeeping. Load the wrong one and PromptSlinger will silently succeed (HTTP 200) but receive a chat-state object instead of an AI response.
+
+**Target endpoint to load:** the request whose path ends in `/chat/completions` (or the equivalent inference path for your platform). This is the request that actually calls the model.
+
+**Endpoints to ignore:** paths like `/api/v1/chats/{id}` are state-save calls that return a large chat history JSON, not an LLM response. Loading one of these will appear to work but produce no useful output.
+
+**Quick check:** after loading a request, glance at the URL bar at the top of PromptSlinger. If it contains `/chats/` followed by a UUID, you have a state endpoint — go back to Burp HTTP history and find the `/chat/completions` request instead.
+
 ---
 
 ## Project Structure

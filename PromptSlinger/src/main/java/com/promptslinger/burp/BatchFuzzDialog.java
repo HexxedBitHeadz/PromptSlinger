@@ -303,6 +303,7 @@ public class BatchFuzzDialog extends JDialog {
                         throw new IllegalStateException("Request body is not a JSON object.");
                     PSPanel.injectAtPath(root, fieldName, payload);
                     on.put("stream", false);
+                    RequestSanitizer.stripOrchestrationFields(on);
 
                     // Multi-turn: inject accumulated conversation history
                     if (multiTurnCheck.isSelected() && !conversationTurns.isEmpty()) {
@@ -358,8 +359,8 @@ public class BatchFuzzDialog extends JDialog {
                     try {
                         JsonNode parsed = mapper.readTree(rawResp);
                         pretty = mapper.writeValueAsString(parsed);
-                        plainResp = (parsed instanceof ObjectNode op && op.has("response"))
-                                ? op.get("response").asText() : pretty;
+                        String extracted = ResponseExtractor.extract(parsed);
+                        plainResp = extracted != null ? extracted : pretty;
                     } catch (Exception ex) {
                         pretty    = rawResp;
                         plainResp = rawResp;

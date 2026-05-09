@@ -15,6 +15,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.promptslinger.burp.PSPanel.*;
@@ -389,7 +390,6 @@ public class BatchFuzzDialog extends JDialog {
         if (multiTurnCheck.isSelected()) conversationTurns.clear();
         progressBar.setMaximum(payloads.size());
         progressBar.setValue(0);
-        running.set(true);
         stopped.set(false);
         startBtn.setEnabled(false);
         stopBtn.setEnabled(true);
@@ -525,7 +525,6 @@ public class BatchFuzzDialog extends JDialog {
             }
 
             SwingUtilities.invokeLater(() -> {
-                running.set(false);
                 startBtn.setEnabled(true);
                 stopBtn.setEnabled(false);
                 int done = tableModel.getRowCount();

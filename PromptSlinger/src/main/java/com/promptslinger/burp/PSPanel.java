@@ -537,6 +537,13 @@ public class PSPanel extends JPanel {
             showError("Message is empty.");
             return;
         }
+        if (rawMessage.matches("(?s).*\\{\\{[^}]+\\}\\}.*")) {
+            int choice = JOptionPane.showConfirmDialog(this,
+                "Message contains unfilled placeholders (e.g. {{SERVICE}}).\n" +
+                "Replace all {{...}} values before sending, or click Send Anyway to send as-is.",
+                "Unfilled Placeholders", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (choice != JOptionPane.OK_OPTION) return;
+        }
         String fieldName = fieldNameInput.getText().trim();
         if (fieldName.isEmpty()) {
             showError("Message field name is empty.");

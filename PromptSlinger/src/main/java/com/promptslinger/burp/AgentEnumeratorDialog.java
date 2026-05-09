@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
@@ -186,7 +187,7 @@ public class AgentEnumeratorDialog extends JDialog {
     };
 
     private static final int[] COMMON_PORTS = {
-        8000, 8001, 8002, 8003, 8080
+        8000, 8001, 8002, 8003, 8004, 8005, 8080
     };
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
@@ -213,7 +214,7 @@ public class AgentEnumeratorDialog extends JDialog {
     private static final Color CYAN_405 = new Color(0x56, 0xB6, 0xC2);
 
     // Common ports checkbox — on by default; text field for any additional ports
-    private final JCheckBox    commonPortsCheck = new JCheckBox("Common ports", true);
+    private final JCheckBox    commonPortsCheck = new JCheckBox("Common ports (" + COMMON_PORTS.length + ")", true);
     private final JTextField   portsField       = new JTextField("", 10) {
         @Override protected void paintComponent(java.awt.Graphics g) {
             super.paintComponent(g);
@@ -350,11 +351,14 @@ public class AgentEnumeratorDialog extends JDialog {
             browseBtn.setEnabled(on);
         });
 
+        String commonPortList = java.util.Arrays.stream(COMMON_PORTS)
+                .mapToObj(Integer::toString)
+                .collect(java.util.stream.Collectors.joining(", "));
         commonPortsCheck.setBackground(BG);
         commonPortsCheck.setForeground(ACCENT);
         commonPortsCheck.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
         commonPortsCheck.setFocusPainted(false);
-        commonPortsCheck.setToolTipText("Scan A2A ecosystem ports: 8000, 8001, 8002, 8003, 8080");
+        commonPortsCheck.setToolTipText("<html>A2A ecosystem ports included when checked:<br><b>" + commonPortList + "</b></html>");
 
         portsField.setBackground(ENTRY_BG);
         portsField.setForeground(FG);
@@ -363,7 +367,7 @@ public class AgentEnumeratorDialog extends JDialog {
         portsField.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(SURFACE, 1),
                 BorderFactory.createEmptyBorder(2, 5, 2, 5)));
-        portsField.setToolTipText("Optional: additional ports to scan beyond the base URL port and common ports (comma-separated)");
+        portsField.setToolTipText("Additional ports to scan (comma-separated) — added on top of common ports when checked");
 
         statusFilterPanel.setBackground(BG);
 

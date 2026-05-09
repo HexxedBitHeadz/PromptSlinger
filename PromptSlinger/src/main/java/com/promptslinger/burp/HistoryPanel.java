@@ -388,6 +388,8 @@ public class HistoryPanel extends JPanel {
         if (confirm == JOptionPane.YES_OPTION) {
             store.clearAll();
             refresh();
+            respArea.setText("");
+            noteEntry.setText("");
         }
     }
 

@@ -11,7 +11,7 @@ public class HelpDialog extends JDialog {
     private static final String[][] SECTIONS = {
         {"Overview",             "overview"},
         {"Quick Start",          "quickstart"},
-        {"Agent Enumerator",     "enumerator"},
+        {"AI Enumerator",        "enumerator"},
         {"Sending Messages",     "sending"},
         {"Output Modifiers",     "modifiers"},
         {"Saved Probes",         "probes"},
@@ -171,7 +171,7 @@ public class HelpDialog extends JDialog {
             + "compare multiple endpoints side-by-side, and track findings — all without leaving Burp.</p>"
             + "<h2>Feature Map</h2>"
             + "<table><tr><th>Feature</th><th>What it does</th></tr>"
-            + "<tr><td><span class='tag'>Enumerate</span></td><td>Probes 40+ well-known paths across 5 common AI/agent ports to discover agent cards, OpenAPI specs, MCP endpoints, and more</td></tr>"
+            + "<tr><td><span class='tag'>Enumerate</span></td><td>Probes 50+ paths across 5 common AI/agent ports, fingerprints AI stack from response headers, and supports wordlist fuzzing with depth control</td></tr>"
             + "<tr><td><span class='tag'>Send</span></td><td>Injects your message into the loaded request's target field and fires it through Burp's HTTP engine</td></tr>"
             + "<tr><td><span class='tag'>Batch</span></td><td>Batch-sends a list of payloads, records responses, auto-marks keyword hits</td></tr>"
             + "<tr><td><span class='tag'>Compare</span></td><td>Sends the same message to multiple saved endpoint slots simultaneously, side-by-side</td></tr>"
@@ -198,10 +198,10 @@ public class HelpDialog extends JDialog {
             + "<p>In Burp's Proxy, Repeater, or Target tree, right-click any request to an AI/chatbot API "
             + "and choose <b>Send to PromptSlinger</b>. The URL and method appear at the top of the panel in green.</p>"
             + "<h2>Step 2 — Enumerate the Target</h2>"
-            + "<p>Click <b>Enumerate</b>. The Agent Card Enumerator opens pre-populated with your target's host "
+            + "<p>Click <b>Enumerate</b>. The AI Endpoint Enumerator opens pre-populated with your target's host "
             + "and automatically scans ports 8000, 8001, 8002, 8003, and 8080 alongside the base port. "
-            + "Look for <span class='good'>A2A Agent Cards</span>, OpenAPI specs, and health endpoints to understand "
-            + "the agent architecture before you start injecting.</p>"
+            + "Look for agent cards, config endpoints, and AI-relevant response headers to understand "
+            + "the stack before you start injecting.</p>"
             + "<h2>Step 3 — Set the Message Field</h2>"
             + "<p>PromptSlinger auto-detects the JSON field that carries the user message "
             + "(<code>message</code>, <code>prompt</code>, <code>query</code>, etc.). "
@@ -216,31 +216,48 @@ public class HelpDialog extends JDialog {
             + "Save interesting endpoints with <b>Save Slot</b> then compare them with <b>Compare</b>.</p>";
 
         case "enumerator": return
-            "<h1>Agent Card Enumerator</h1>"
-            + "<p>The enumerator probes a target host for AI/agent discovery endpoints. Click <b>Enumerate</b> — "
-            + "the dialog opens pre-filled with your loaded target's host and port.</p>"
-            + "<h2>What it scans</h2>"
+            "<h1>AI Endpoint Enumerator</h1>"
+            + "<p>Reconnaissance tool for mapping AI/agent infrastructure. Click <b>Enumerate</b> — "
+            + "the dialog opens pre-filled with your loaded target's host and port. "
+            + "Use it to understand what's running <i>before</i> you start injecting. "
+            + "The main PromptSlinger panel handles the actual prompt testing via requests loaded from Burp Proxy.</p>"
+            + "<h2>Built-in probe paths</h2>"
             + "<table><tr><th>Type</th><th>Paths probed</th></tr>"
+            + "<tr><td>Root / Header fingerprint</td><td><code>/</code> — always probed first for AI-revealing headers</td></tr>"
             + "<tr><td>A2A Agent Cards</td><td><code>/.well-known/agent.json</code></td></tr>"
             + "<tr><td>OpenAI Plugin</td><td><code>/.well-known/ai-plugin.json</code></td></tr>"
             + "<tr><td>MCP</td><td><code>/.well-known/mcp.json</code>, <code>/mcp</code>, <code>/mcp/tools</code></td></tr>"
-            + "<tr><td>LLMs.txt</td><td><code>/llms.txt</code>, <code>/.well-known/llms.txt</code></td></tr>"
             + "<tr><td>OpenAPI / Swagger</td><td><code>/openapi.json</code>, <code>/swagger.json</code>, <code>/api-docs</code>…</td></tr>"
             + "<tr><td>Models / Assistants</td><td><code>/v1/models</code>, <code>/v1/assistants</code>, <code>/agents</code>…</td></tr>"
-            + "<tr><td>Health / Info</td><td><code>/health</code>, <code>/api/status</code>, <code>/version</code>…</td></tr>"
+            + "<tr><td>Health / Info</td><td><code>/health</code>, <code>/api/health</code>, <code>/version</code>…</td></tr>"
+            + "<tr><td>Config / Settings</td><td><code>/api/config</code>, <code>/config</code>, <code>/api/settings</code>…</td></tr>"
             + "</table>"
+            + "<h2>HTTP header fingerprinting</h2>"
+            + "<p>Every response is inspected for AI-revealing headers. Headers matching known patterns "
+            + "(<code>X-AI-Backend</code>, <code>X-RAG-Provider</code>, <code>X-LLM-Provider</code>, "
+            + "<code>X-Model</code>, and AI-related values in <code>Server</code> / <code>X-Powered-By</code>) "
+            + "are extracted and shown at the top of the Response Detail pane in <b>orange</b>. "
+            + "Detected headers also appear inline in the Summary column.</p>"
+            + "<h2>Wordlist fuzz mode</h2>"
+            + "<p>Tick <b>Fuzz paths</b> to generate additional paths beyond the built-in probe list.</p>"
+            + "<table><tr><th>Depth</th><th>Pattern</th><th>Example</th></tr>"
+            + "<tr><td>1</td><td><code>/{word}</code></td><td><code>/config</code></td></tr>"
+            + "<tr><td>2</td><td><code>/{prefix}/{word}</code></td><td><code>/api/v1/config</code></td></tr>"
+            + "<tr><td>3</td><td><code>/{prefix}/{word}/{word}</code></td><td><code>/api/v1/admin/config</code> — slow</td></tr>"
+            + "</table>"
+            + "<p>A built-in wordlist of common API endpoint names is used by default. "
+            + "Click <b>Load wordlist</b> to supply your own (one word per line, no leading slash, <code>#</code> lines are comments). "
+            + "A large scan warning appears in the status bar if the total request count exceeds 5,000.</p>"
             + "<h2>Multi-port sweep</h2>"
             + "<p>In addition to the base URL's port, the scanner automatically probes ports "
             + "<code>8000</code>, <code>8001</code>, <code>8002</code>, <code>8003</code>, and <code>8080</code> — "
-            + "common ports for A2A agent frameworks. The full URL is shown in the results table so you can see exactly which port responded.</p>"
+            + "common ports for A2A agent frameworks. The Path column shows only the path — the base host is already visible in the URL bar.</p>"
             + "<h2>Result table</h2>"
-            + "<p>Click any column header to sort. Click a row to see the full response body on the right. "
-            + "404 / 400 / 405 responses and Burp proxy error pages are hidden by default — tick <b>Show 404s</b> to reveal them.</p>"
+            + "<p>Click any column header to sort. Click a row to see headers and response body on the right. "
+            + "404 / 400 / 405 responses are hidden by default — tick <b>Show 404s</b> to reveal them.</p>"
             + "<h2>Actions</h2>"
             + "<ul>"
-            + "<li><b>Set as Target URL</b> — pushes the selected URL into PromptSlinger's URL field</li>"
-            + "<li><b>Copy URL</b> — copies the URL to clipboard</li>"
-            + "<li><b>Export Findings</b> — saves a markdown report with all interesting endpoints and response bodies</li>"
+            + "<li><b>Export Findings</b> — saves a markdown report with all interesting endpoints, headers, and response bodies</li>"
             + "<li><b>Maximize / Restore</b> — expands the window to fill the screen</li>"
             + "</ul>";
 
@@ -335,7 +352,10 @@ public class HelpDialog extends JDialog {
             + "<p>This is useful for escalation chains — e.g. softening the model across several turns before "
             + "attempting an extraction, or testing whether injected context persists across a session.</p>"
             + "<p>The conversation resets automatically each time you click <b>Start</b>. "
-            + "Turn multi-turn off to send each payload independently again.</p>";
+            + "Turn multi-turn off to send each payload independently again.</p>"
+            + "<h2>Controls</h2>"
+            + "<p>Bottom bar (left to right): <b>Multi-turn</b> checkbox — <b>Delay (ms)</b> spinner (pause between payloads) "
+            + "— <b>Start</b> — <b>Stop</b> — <b>Maximize</b> — <b>Close</b>.</p>";
 
         case "compare": return
             "<h1>Compare Endpoints</h1>"
@@ -392,6 +412,7 @@ public class HelpDialog extends JDialog {
             + "</ul>"
             + "<p>Newest entries appear at the top. Latency is shown for each entry. "
             + "Auto-marked entries (from keyword alerts) show their mark label in the table.</p>"
+            + "<p><b>Clear All History</b> removes all entries and also clears the response and note fields.</p>"
             + "<p class='muted'>History is stored in memory only and does not persist across Burp restarts.</p>";
 
         case "decode": return
@@ -442,7 +463,7 @@ public class HelpDialog extends JDialog {
             + "<tr><td><kbd>Right-click</kbd> (probe menu item)</td><td>Delete that saved probe</td></tr>"
             + "</table>"
             + "<hr>"
-            + "<p class='muted'>PromptSlinger v1.0.0  |  By Hexxed BitHeadz  |  "
+            + "<p class='muted'>PromptSlinger v1.0.3  |  By Hexxed BitHeadz  |  "
             + "<a href='overview'>Back to Overview</a></p>";
 
         default: return "<h1>Not found</h1><p>Section not found: " + key + "</p>";

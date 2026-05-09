@@ -2,6 +2,7 @@ package com.promptslinger.burp;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.HttpService;
+import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -10,6 +11,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 
 import javax.swing.*;
 import javax.swing.table.*;
+import javax.swing.text.*;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
@@ -31,6 +33,8 @@ public class AgentEnumeratorDialog extends JDialog {
     // ── Probe path list ───────────────────────────────────────────────────────
 
     private static final String[] PROBE_PATHS = {
+        // Root — header fingerprinting probe (mirrors curl -I /)
+        "/",
         // A2A Agent Card (Google A2A protocol)
         "/.well-known/agent.json",
         // OpenAI Plugin Manifest
@@ -83,9 +87,40 @@ public class AgentEnumeratorDialog extends JDialog {
         "/version",
         "/api/version",
         "/api/status",
+        // Configuration endpoints
+        "/api/config",
+        "/config",
+        "/api/configuration",
+        "/configuration",
+        "/api/settings",
+        "/settings",
+        "/api/debug",
+        "/debug",
         // WebFinger and discovery
         "/.well-known/webfinger",
         "/.well-known/openid-configuration",
+    };
+
+    // Built-in wordlist for fuzz mode (no leading slash, no prefix)
+    private static final String[] BUILTIN_ENDPOINTS = {
+        "account", "accounts", "admin", "agent", "agent.json", "assistant",
+        "auth", "chat", "completions", "config", "configuration", "context",
+        "data", "debug", "docs", "embeddings", "embed", "files", "generate",
+        "health", "info", "infer", "inference", "keys", "limits", "login",
+        "logout", "me", "metrics", "model", "models", "openapi.json",
+        "ping", "profile", "prompts", "query", "refresh", "register",
+        "route", "schema", "search", "settings", "status", "system",
+        "token", "tokens", "tools", "upload", "user", "users", "version",
+        "workflow", "whoami",
+        ".well-known/agent.json", ".well-known/ai-plugin.json",
+        ".well-known/llms.txt", ".well-known/openid-configuration",
+    };
+
+    // Prefixes used at depth 2 and 3
+    private static final String[] FUZZ_PREFIXES = {
+        "api", "api/v1", "api/v2", "api/v3",
+        "v1", "v2", "v3", "a2a", "rest", "rest/v1",
+        "service", "internal", "public",
     };
 
     // Common A2A/agent ports to sweep in addition to the base port
@@ -94,7 +129,7 @@ public class AgentEnumeratorDialog extends JDialog {
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
 
-    private static final String[] COLS = {"URL", "Status", "Type", "Summary"};
+    private static final String[] COLS = {"Path", "Status", "Type", "Summary"};
 
     // ── State ─────────────────────────────────────────────────────────────────
 
@@ -111,7 +146,17 @@ public class AgentEnumeratorDialog extends JDialog {
     private final JTable           table        = buildTable();
     private final JTextPane        detailPane   = new JTextPane();
 
-    // allRows: {fullUrl, probePath, status(int or "ERR"), type, summary, body}
+    // Wordlist fuzz controls
+    private final JCheckBox    fuzzCheck     = new JCheckBox("Fuzz paths");
+    private final JComboBox<String> depthBox = new JComboBox<>(new String[]{
+        "Depth 1  —  /{word}",
+        "Depth 2  —  /{prefix}/{word}",
+        "Depth 3  —  /{prefix}/{word}/{word}  (slow)",
+    });
+    private final JLabel       wordlistLabel = new JLabel("  built-in wordlist");
+    private List<String>       customWordlist = null;
+
+    // allRows: {fullUrl, probePath, status(int or "ERR"), type, summary, body, headersAll, aiHeaders}
     private final List<Object[]>   allRows  = new ArrayList<>();
     private final AtomicBoolean    stopped  = new AtomicBoolean(false);
     private Thread                 worker;
@@ -120,7 +165,7 @@ public class AgentEnumeratorDialog extends JDialog {
 
     public AgentEnumeratorDialog(Component parent, MontoyaApi api,
                                  String initialUrl, PSPanel owner) {
-        super(SwingUtilities.getWindowAncestor(parent), "Agent Card Enumerator",
+        super(SwingUtilities.getWindowAncestor(parent), "AI Endpoint Enumerator",
               ModalityType.MODELESS);
         this.api   = api;
         this.owner = owner;
@@ -178,6 +223,48 @@ public class AgentEnumeratorDialog extends JDialog {
         ctrlRow.add(scanBtn);
         ctrlRow.add(stopBtn);
         topBar.add(ctrlRow, BorderLayout.EAST);
+
+        // ── Fuzz row ────────────────────────────────────────────────────────
+        JPanel fuzzRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        fuzzRow.setBackground(BG);
+        fuzzRow.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, SURFACE));
+
+        fuzzCheck.setBackground(BG);
+        fuzzCheck.setForeground(ACCENT);
+        fuzzCheck.setFont(new Font("Monospaced", Font.BOLD, Math.max(BASE_SIZE - 2, 10)));
+        fuzzCheck.setFocusPainted(false);
+
+        JLabel depthLbl = new JLabel("Depth:");
+        depthLbl.setForeground(MUTED);
+        depthLbl.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+
+        depthBox.setBackground(ENTRY_BG);
+        depthBox.setForeground(FG);
+        depthBox.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        depthBox.setEnabled(false);
+
+        JButton browseBtn = btn("Load wordlist", MUTED);
+        browseBtn.setEnabled(false);
+        browseBtn.addActionListener(e -> browseWordlist());
+
+        wordlistLabel.setFont(new Font("Monospaced", Font.ITALIC, Math.max(BASE_SIZE - 3, 9)));
+        wordlistLabel.setForeground(MUTED);
+
+        fuzzCheck.addActionListener(e -> {
+            boolean on = fuzzCheck.isSelected();
+            depthBox.setEnabled(on);
+            browseBtn.setEnabled(on);
+        });
+
+        fuzzRow.add(fuzzCheck);
+        fuzzRow.add(Box.createHorizontalStrut(6));
+        fuzzRow.add(depthLbl);
+        fuzzRow.add(depthBox);
+        fuzzRow.add(Box.createHorizontalStrut(10));
+        fuzzRow.add(browseBtn);
+        fuzzRow.add(wordlistLabel);
+        topBar.add(fuzzRow, BorderLayout.SOUTH);
+
         root.add(topBar, BorderLayout.NORTH);
 
         // ── Centre: results table + detail pane ─────────────────────────────
@@ -205,7 +292,8 @@ public class AgentEnumeratorDialog extends JDialog {
         split.setBackground(BG);
         split.setBorder(null);
         split.setDividerSize(4);
-        split.setDividerLocation(500);
+        split.setResizeWeight(0.75);
+        split.setDividerLocation(780);
         root.add(split, BorderLayout.CENTER);
 
         // ── Bottom: progress + actions ───────────────────────────────────────
@@ -227,18 +315,12 @@ public class AgentEnumeratorDialog extends JDialog {
 
         JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         actionRow.setBackground(BG);
-        JButton setUrlBtn  = btn("Set as Target URL", ACCENT);
-        JButton copyUrlBtn = btn("Copy URL",          MUTED);
-        JButton exportBtn  = btn("Export Findings",   GREEN);
-        JButton maxBtn     = btn("⛶ Maximize",        MUTED);
-        JButton closeBtn   = btn("Close",             MUTED);
-        setUrlBtn .addActionListener(e -> applySelectedUrl());
-        copyUrlBtn.addActionListener(e -> copySelectedUrl());
-        exportBtn .addActionListener(e -> exportFindings());
-        maxBtn    .addActionListener(e -> toggleMaximize(maxBtn));
-        closeBtn  .addActionListener(e -> dispose());
-        actionRow.add(setUrlBtn);
-        actionRow.add(copyUrlBtn);
+        JButton exportBtn = btn("Export Findings", GREEN);
+        JButton maxBtn    = btn("⛶ Maximize",      MUTED);
+        JButton closeBtn  = btn("Close",           MUTED);
+        exportBtn.addActionListener(e -> exportFindings());
+        maxBtn   .addActionListener(e -> toggleMaximize(maxBtn));
+        closeBtn .addActionListener(e -> dispose());
         actionRow.add(exportBtn);
         actionRow.add(maxBtn);
         actionRow.add(closeBtn);
@@ -265,7 +347,8 @@ public class AgentEnumeratorDialog extends JDialog {
         scanBtn.setEnabled(false);
         stopBtn.setEnabled(true);
 
-        final String baseUrl = base;
+        final String baseUrl    = base;
+        final List<String> scanPaths = buildScanPaths(); // capture on EDT before thread starts
 
         worker = new Thread(() -> {
             try {
@@ -282,9 +365,13 @@ public class AgentEnumeratorDialog extends JDialog {
                 for (int p : EXTRA_PORTS) {
                     if (p != basePort) ports.add(p);
                 }
-
-                final int total = ports.size() * PROBE_PATHS.length;
-                SwingUtilities.invokeLater(() -> progressBar.setMaximum(total));
+                final int total = ports.size() * scanPaths.size();
+                SwingUtilities.invokeLater(() -> {
+                    progressBar.setMaximum(total);
+                    if (total > 5000)
+                        setStatus("Large scan — " + total + " requests across "
+                                + ports.size() + " ports (this may take a while)");
+                });
 
                 AtomicInteger completed = new AtomicInteger(0);
                 ExecutorService pool = Executors.newFixedThreadPool(20);
@@ -295,7 +382,7 @@ public class AgentEnumeratorDialog extends JDialog {
                     String  hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
                     HttpService service = HttpService.httpService(host, port, secure);
 
-                    for (String probePath : PROBE_PATHS) {
+                    for (String probePath : scanPaths) {
                         if (stopped.get()) break;
                         final String fp = probePath;
                         final String fs = scheme, fh = hostHdr;
@@ -320,12 +407,19 @@ public class AgentEnumeratorDialog extends JDialog {
                                 String ct      = rr.response() != null
                                         ? (rr.response().headerValue("Content-Type") != null
                                            ? rr.response().headerValue("Content-Type") : "") : "";
+                                List<HttpHeader> hdrs = rr.response() != null
+                                        ? rr.response().headers() : List.of();
+                                String headersAll = formatHeaders(hdrs);
+                                String aiHeaders  = extractAiHeaders(hdrs);
 
                                 String type    = detectType(fp, body, ct);
                                 String summary = extractSummary(fp, body);
+                                if (!aiHeaders.isEmpty())
+                                    summary = (summary.isEmpty() ? "" : summary + "  ")
+                                            + "[" + aiHeaders.replace("\n", ", ") + "]";
                                 String fullUrl = fs + "://" + fh + fp;
 
-                                Object[] row = {fullUrl, fp, status, type, summary, body};
+                                Object[] row = {fullUrl, fp, status, type, summary, body, headersAll, aiHeaders};
                                 synchronized (allRows) { allRows.add(row); }
 
                                 final int    st = status;
@@ -340,7 +434,7 @@ public class AgentEnumeratorDialog extends JDialog {
                                 });
                             } catch (Exception ex) {
                                 Object[] row = {fs + "://" + fh + fp, fp, 0, "Error",
-                                        ex.getClass().getSimpleName(), ""};
+                                        ex.getClass().getSimpleName(), "", "", ""};
                                 synchronized (allRows) { allRows.add(row); }
                                 SwingUtilities.invokeLater(() -> progressBar.setValue(completed.incrementAndGet()));
                             }
@@ -377,6 +471,93 @@ public class AgentEnumeratorDialog extends JDialog {
         setStatus("Stopped.");
     }
 
+    // ── Wordlist / path building ──────────────────────────────────────────────
+
+    private List<String> buildScanPaths() {
+        java.util.LinkedHashSet<String> paths = new java.util.LinkedHashSet<>(List.of(PROBE_PATHS));
+        if (fuzzCheck.isSelected()) {
+            List<String> words = customWordlist != null ? customWordlist : List.of(BUILTIN_ENDPOINTS);
+            int depth = depthBox.getSelectedIndex() + 1;
+            paths.addAll(buildFuzzPaths(words, depth));
+        }
+        return new ArrayList<>(paths);
+    }
+
+    private static List<String> buildFuzzPaths(List<String> words, int depth) {
+        java.util.LinkedHashSet<String> paths = new java.util.LinkedHashSet<>();
+        if (depth >= 1) {
+            for (String w : words) paths.add("/" + w.replaceAll("^/+", ""));
+        }
+        if (depth >= 2) {
+            for (String p : FUZZ_PREFIXES)
+                for (String w : words)
+                    paths.add("/" + p + "/" + w.replaceAll("^/+", ""));
+        }
+        if (depth >= 3) {
+            for (String p : FUZZ_PREFIXES)
+                for (String w1 : words)
+                    for (String w2 : words)
+                        paths.add("/" + p + "/" + w1.replaceAll("^/+", "")
+                                + "/" + w2.replaceAll("^/+", ""));
+        }
+        return new ArrayList<>(paths);
+    }
+
+    private void browseWordlist() {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle("Load Wordlist (one endpoint per line, no leading slash)");
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        java.io.File f = fc.getSelectedFile();
+        try {
+            customWordlist = java.nio.file.Files.readAllLines(f.toPath()).stream()
+                    .map(String::trim)
+                    .filter(l -> !l.isEmpty() && !l.startsWith("#"))
+                    .collect(java.util.stream.Collectors.toList());
+            wordlistLabel.setText("  " + f.getName() + " (" + customWordlist.size() + " words)");
+            wordlistLabel.setForeground(GREEN);
+        } catch (Exception ex) {
+            wordlistLabel.setText("  Error: " + ex.getMessage());
+            wordlistLabel.setForeground(RED);
+            customWordlist = null;
+        }
+    }
+
+    // ── Header fingerprinting helpers ─────────────────────────────────────────
+
+    private static final String[] AI_HEADER_PREFIXES = {
+        "x-ai-", "x-llm-", "x-rag-", "x-model", "x-inference",
+        "x-embedding", "x-orchestrator", "x-backend", "x-engine"
+    };
+    private static final String[] AI_VALUE_KEYWORDS = {
+        "ollama", "litellm", "localai", "vllm", "openai", "anthropic",
+        "llama", "mistral", "deepseek", "huggingface", "langchain", "fastapi",
+        "chromadb", "pinecone", "weaviate", "qdrant", "llamacpp", "koboldcpp"
+    };
+
+    private static String formatHeaders(List<HttpHeader> headers) {
+        if (headers == null || headers.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (HttpHeader h : headers) sb.append(h.name()).append(": ").append(h.value()).append("\n");
+        return sb.toString();
+    }
+
+    private static String extractAiHeaders(List<HttpHeader> headers) {
+        if (headers == null || headers.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (HttpHeader h : headers) {
+            String nameLow = h.name().toLowerCase();
+            String val     = h.value();
+            boolean flag   = false;
+            for (String pfx : AI_HEADER_PREFIXES) if (nameLow.startsWith(pfx)) { flag = true; break; }
+            if (!flag && (nameLow.equals("x-powered-by") || nameLow.equals("server") || nameLow.equals("via"))) {
+                String valL = val.toLowerCase();
+                for (String kw : AI_VALUE_KEYWORDS) if (valL.contains(kw)) { flag = true; break; }
+            }
+            if (flag) { if (sb.length() > 0) sb.append("\n"); sb.append(h.name()).append(": ").append(val); }
+        }
+        return sb.toString();
+    }
+
     // ── Classification helpers ────────────────────────────────────────────────
 
     private static String detectType(String path, String body, String ct) {
@@ -396,6 +577,7 @@ public class AgentEnumeratorDialog extends JDialog {
                                                      return "Health / Info";
         if (path.contains("capabilities") || path.contains("manifest"))
                                                      return "Capabilities";
+        if (ct.contains("text/html"))                return "HTML Page";
         // Body-based fallbacks
         if (body.contains("\"tools\""))              return "Tool Manifest";
         if (body.contains("\"models\""))             return "Models API";
@@ -485,18 +667,68 @@ public class AgentEnumeratorDialog extends JDialog {
         synchronized (allRows) {
             for (Object[] r : allRows) {
                 if (fullUrl.equals(r[0])) {
-                    String body = (String) r[5];
-                    if (body != null && !body.isBlank()) {
-                        try {
-                            body = MAPPER.writeValueAsString(MAPPER.readTree(body));
-                        } catch (Exception ignored) {}
-                    }
-                    detailPane.setText(body != null ? body : "(empty body)");
-                    detailPane.setCaretPosition(0);
+                    String body       = r.length > 5 ? (String) r[5] : "";
+                    String headersAll = r.length > 6 ? (String) r[6] : "";
+                    String aiHeaders  = r.length > 7 ? (String) r[7] : "";
+                    renderDetail(aiHeaders, headersAll, body);
                     return;
                 }
             }
         }
+    }
+
+    private void renderDetail(String aiHeaders, String headersAll, String body) {
+        StyledDocument doc = detailPane.getStyledDocument();
+        detailPane.setText("");
+
+        // Style definitions
+        SimpleAttributeSet aiSection = new SimpleAttributeSet();
+        StyleConstants.setForeground(aiSection, ACCENT);
+        StyleConstants.setBold(aiSection, true);
+
+        SimpleAttributeSet aiKey = new SimpleAttributeSet();
+        StyleConstants.setForeground(aiKey, MUTED);
+
+        SimpleAttributeSet aiValue = new SimpleAttributeSet();
+        StyleConstants.setForeground(aiValue, ORANGE);
+        StyleConstants.setBold(aiValue, true);
+
+        SimpleAttributeSet mutedSection = new SimpleAttributeSet();
+        StyleConstants.setForeground(mutedSection, MUTED);
+
+        SimpleAttributeSet normal = new SimpleAttributeSet();
+        StyleConstants.setForeground(normal, FG);
+
+        try {
+            if (aiHeaders != null && !aiHeaders.isBlank()) {
+                doc.insertString(doc.getLength(), "=== AI-RELEVANT HEADERS ===\n", aiSection);
+                for (String line : aiHeaders.split("\n")) {
+                    int colon = line.indexOf(':');
+                    if (colon > 0) {
+                        doc.insertString(doc.getLength(), line.substring(0, colon + 1), aiKey);
+                        doc.insertString(doc.getLength(), line.substring(colon + 1) + "\n", aiValue);
+                    } else {
+                        doc.insertString(doc.getLength(), line + "\n", normal);
+                    }
+                }
+                doc.insertString(doc.getLength(), "\n", normal);
+            }
+            if (headersAll != null && !headersAll.isBlank()) {
+                doc.insertString(doc.getLength(), "=== RESPONSE HEADERS ===\n", mutedSection);
+                doc.insertString(doc.getLength(), headersAll + "\n", normal);
+            }
+            if (body != null && !body.isBlank()) {
+                doc.insertString(doc.getLength(), "=== RESPONSE BODY ===\n", mutedSection);
+                String pretty = body;
+                try { pretty = MAPPER.writeValueAsString(MAPPER.readTree(body)); }
+                catch (Exception ignored) {}
+                doc.insertString(doc.getLength(), pretty, normal);
+            }
+            if (doc.getLength() == 0)
+                doc.insertString(0, "(empty response)", mutedSection);
+        } catch (BadLocationException ignored) {}
+
+        detailPane.setCaretPosition(0);
     }
 
     // ── Actions ───────────────────────────────────────────────────────────────
@@ -571,11 +803,21 @@ public class AgentEnumeratorDialog extends JDialog {
             sb.append("\n---\n\n## Response Bodies\n\n");
             for (Object[] r : hits) {
                 sb.append("### ").append(r[1]).append("  (HTTP ").append(r[2]).append(")\n\n");
+                String headersAll = r.length > 6 ? (String) r[6] : "";
+                String aiHeaders  = r.length > 7 ? (String) r[7] : "";
+                if (aiHeaders != null && !aiHeaders.isBlank()) {
+                    sb.append("**AI-Relevant Headers:**\n```\n")
+                      .append(aiHeaders.trim()).append("\n```\n\n");
+                }
+                if (headersAll != null && !headersAll.isBlank()) {
+                    sb.append("**Response Headers:**\n```\n")
+                      .append(headersAll.trim()).append("\n```\n\n");
+                }
                 String body = (String) r[5];
                 if (body != null && !body.isBlank()) {
                     try { body = MAPPER.writeValueAsString(MAPPER.readTree(body)); }
                     catch (Exception ignored) {}
-                    sb.append("```\n").append(body.trim()).append("\n```\n\n");
+                    sb.append("**Body:**\n```\n").append(body.trim()).append("\n```\n\n");
                 }
             }
             Files.writeString(out.toPath(), sb.toString());
@@ -618,8 +860,8 @@ public class AgentEnumeratorDialog extends JDialog {
         t.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showDetail();
         });
-        // Column widths: URL | Status | Type | Summary
-        int[] w = {210, 56, 130, 380};
+        // Column widths: Path | Status | Type | Summary
+        int[] w = {160, 56, 130, 430};
         for (int i = 0; i < w.length; i++)
             t.getColumnModel().getColumn(i).setPreferredWidth(w[i]);
         // Click column headers to sort
@@ -690,6 +932,16 @@ public class AgentEnumeratorDialog extends JDialog {
         @Override
         public Component getTableCellRendererComponent(JTable tbl, Object value,
                 boolean isSelected, boolean hasFocus, int row, int col) {
+            // For the URL column, show only the path — host is already visible in the Base URL bar
+            if (col == 0 && value != null) {
+                String url = value.toString();
+                try {
+                    String path = new java.net.URI(url).getRawPath();
+                    String query = new java.net.URI(url).getRawQuery();
+                    value = (path == null || path.isEmpty() ? "/" : path)
+                            + (query != null ? "?" + query : "");
+                } catch (Exception ignored) {}
+            }
             super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, col);
             setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
             setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));

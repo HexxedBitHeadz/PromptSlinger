@@ -225,18 +225,22 @@ public class BatchFuzzDialog extends JDialog {
         multiTurnCheck.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE - 1));
         multiTurnCheck.setFocusPainted(false);
         multiTurnCheck.setToolTipText("Chain each payload into the next as a conversation turn");
+
+        JButton maxBtn   = btn("⛶ Maximize", MUTED);
+        JButton closeBtn = btn("Close",       MUTED);
+        maxBtn  .addActionListener(e -> toggleMaximize(maxBtn));
+        closeBtn.addActionListener(e -> dispose());
+
         ctrlPanel.add(multiTurnCheck);
         ctrlPanel.add(Box.createHorizontalStrut(8));
-
-        JButton maxBtn = btn("⛶ Maximize", MUTED);
-        maxBtn.addActionListener(e -> toggleMaximize(maxBtn));
-        ctrlPanel.add(maxBtn);
-        ctrlPanel.add(Box.createHorizontalStrut(12));
         ctrlPanel.add(delayLabel);
         ctrlPanel.add(delaySpinner);
         ctrlPanel.add(Box.createHorizontalStrut(12));
         ctrlPanel.add(startBtn);
         ctrlPanel.add(stopBtn);
+        ctrlPanel.add(Box.createHorizontalStrut(12));
+        ctrlPanel.add(maxBtn);
+        ctrlPanel.add(closeBtn);
 
         bottomBar.add(progressPanel, BorderLayout.CENTER);
         bottomBar.add(ctrlPanel,     BorderLayout.EAST);

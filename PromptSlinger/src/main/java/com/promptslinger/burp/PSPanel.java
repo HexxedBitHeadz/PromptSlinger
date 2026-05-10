@@ -446,6 +446,7 @@ public class PSPanel extends JPanel {
         split.setBorder(null);
         split.setDividerSize(5);
         split.setResizeWeight(0.35);
+        split.setMinimumSize(new Dimension(0, 0));
 
         JPanel topHalf = panel(BG, new BorderLayout());
         topHalf.add(inputPanel, BorderLayout.CENTER);
@@ -488,7 +489,7 @@ public class PSPanel extends JPanel {
 
         JPanel leftPane = new JPanel(new BorderLayout(0, 0));
         leftPane.setBackground(BG);
-        leftPane.setMinimumSize(new Dimension(150, 0));
+        leftPane.setMinimumSize(new Dimension(0, 0));
         leftPane.add(leftTabBar, BorderLayout.NORTH);
         leftPane.add(leftCards,  BorderLayout.CENTER);
 
@@ -499,7 +500,6 @@ public class PSPanel extends JPanel {
         mainSplit.setBorder(null);
         mainSplit.setDividerSize(isLinux ? 0 : 8);
         mainSplit.setContinuousLayout(true);
-        mainSplit.setEnabled(!isLinux);
         mainSplit.setLeftComponent(leftPane);
         mainSplit.setRightComponent(split);
         SwingUtilities.invokeLater(() -> {
@@ -1021,7 +1021,7 @@ public class PSPanel extends JPanel {
             showInfo("No response to decode yet.");
             return;
         }
-        new DecodeWindow(lastResponseText, activeModifier).setVisible(true);
+        new DecodeWindow(this, lastResponseText, activeModifier).setVisible(true);
     }
 
     private void toggleHistoryPanel() {

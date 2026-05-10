@@ -10,7 +10,7 @@ import java.util.List;
 
 import static com.promptslinger.burp.PSPanel.*;
 
-public class HistoryWindow extends JFrame {
+public class HistoryWindow extends JDialog {
 
     // Maps our mark keys to Burp HighlightColor so proxy history also gets coloured
     private static final HighlightColor[] BURP_COLORS = {
@@ -30,16 +30,17 @@ public class HistoryWindow extends JFrame {
 
     private int currentIdx = -1;
 
-    public HistoryWindow(MontoyaApi api, HistoryStore store, PSPanel mainPanel) {
-        super("Message History — PromptSlinger");
+    public HistoryWindow(Component parent, MontoyaApi api, HistoryStore store, PSPanel mainPanel) {
+        super(SwingUtilities.getWindowAncestor(parent), "Message History — PromptSlinger",
+              ModalityType.MODELESS);
         this.api       = api;
         this.store     = store;
         this.mainPanel = mainPanel;
 
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
         setSize(screen.width / 2, (int)(screen.height * 0.9));
-        setLocationRelativeTo(null);
+        setLocationRelativeTo(parent);
         getContentPane().setBackground(BG);
         setLayout(new BorderLayout(0, 0));
 

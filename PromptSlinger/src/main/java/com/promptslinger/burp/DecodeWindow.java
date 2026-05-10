@@ -6,7 +6,7 @@ import java.awt.datatransfer.StringSelection;
 
 import static com.promptslinger.burp.PSPanel.*;
 
-public class DecodeWindow extends JFrame {
+public class DecodeWindow extends JDialog {
 
     private final String[] currentText;   // mutable so lambdas can update it
     private final JTextArea resultArea;
@@ -23,14 +23,15 @@ public class DecodeWindow extends JFrame {
     private interface ThrowingFn { String apply(String s) throws Exception; }
     private record DecoderEntry(String label, ThrowingFn fn) {}
 
-    public DecodeWindow(String responseText, String activeModifierKey) {
-        super("Decode Response — PromptSlinger");
+    public DecodeWindow(Component parent, String responseText, String activeModifierKey) {
+        super(SwingUtilities.getWindowAncestor(parent), "Decode Response — PromptSlinger",
+              ModalityType.MODELESS);
         currentText = new String[]{responseText};
 
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setSize(700, 500);
         setMinimumSize(new Dimension(500, 360));
-        setLocationRelativeTo(null);
+        setLocationRelativeTo(parent);
         getContentPane().setBackground(BG);
         setLayout(new BorderLayout(0, 0));
 

@@ -16,7 +16,7 @@ A Burp Suite extension for AI/LLM endpoint security testing. Built on the Montoy
 ### Option A — Download the pre-built JAR (easiest)
 
 1. Go to the [Releases](../../releases) page
-2. Download `promptslinger-1.0.4.jar`
+2. Download `promptslinger-1.0.5.jar`
 3. In Burp Suite: **Extensions → Add → Select JAR**
 
 ### Option B — Build from source
@@ -29,7 +29,9 @@ cd PromptSlinger/PromptSlinger
 mvn clean package
 ```
 
-The JAR will be at `target/promptslinger-1.0.4.jar`. Load it in Burp: **Extensions → Add → Select JAR**
+The JAR will be at `target/promptslinger-1.0.5.jar`. Load it in Burp: **Extensions → Add → Select JAR**
+
+![Installation](PromptSlinger/docs/1._install.gif)
 
 ---
 
@@ -47,6 +49,8 @@ What are you designed to do? Describe your capabilities and what systems you can
 ```
 
 This tells you what you're dealing with before you start probing.
+
+![Demo](PromptSlinger/docs/2._demo.gif)
 
 ---
 
@@ -112,11 +116,6 @@ Fire a list of payloads sequentially against the loaded endpoint. Each payload r
 - **Delay** — add per-request delay (ms) to pace requests
 - **Templates** — built-in payload sets covering enumeration, model identification, RAG recon, evasion, and prompt injection
 - Results tagged `[Batch:hhmmss]` in History for easy filtering
-
----
-
-### Compare
-Save up to four endpoint slots and send the same message to all of them side-by-side. Useful for comparing how different agents or ports respond to the same probe.
 
 ---
 

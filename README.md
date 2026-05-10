@@ -31,7 +31,7 @@ mvn clean package
 
 The JAR will be at `target/promptslinger-1.0.5.jar`. Load it in Burp: **Extensions → Add → Select JAR**
 
-![Installation](PromptSlinger/docs/1._install.gif)
+![Installation](docs/1._install.gif)
 
 ---
 
@@ -50,7 +50,7 @@ What are you designed to do? Describe your capabilities and what systems you can
 
 This tells you what you're dealing with before you start probing.
 
-![Demo](PromptSlinger/docs/2._demo.gif)
+![Demo](docs/2._demo.gif)
 
 ---
 

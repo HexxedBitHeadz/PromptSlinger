@@ -118,11 +118,6 @@ public class PSPanel extends JPanel {
     private BatchFuzzDialog        batchDialog;
     private CrescendoDialog        crescendoDialog;
 
-    // Endpoint slots (for Compare)
-    private final List<EndpointSlot> slots = new ArrayList<>();
-    private JButton                  compareBtn;
-    private JLabel                   slotCountLabel;
-
     // Agent enumerator
     private AgentEnumeratorDialog enumeratorDialog;
     private HelpDialog            helpDialog;
@@ -360,33 +355,17 @@ public class PSPanel extends JPanel {
         sendBtn.addActionListener(e -> sendRequest());
         btnBar.add(sendBtn);
 
-        JButton decodeBtn = actionButton("Decode", ORANGE);
-        decodeBtn.addActionListener(e -> openDecodeWindow());
-        btnBar.add(decodeBtn);
-
-        JButton probesBtn = actionButton("Probes", PINK);
-        probesBtn.addActionListener(e -> showProbesMenu(probesBtn));
-        btnBar.add(probesBtn);
-
-        JButton copyBtn = actionButton("Copy Response", FG);
-        copyBtn.addActionListener(e -> copyResponse());
-        btnBar.add(copyBtn);
-
-        JButton clearBtn = actionButton("Clear", MUTED);
-        clearBtn.addActionListener(e -> clearAll());
-        btnBar.add(clearBtn);
-
-        JButton fuzzBtn = actionButton("Batch", ORANGE);
-        fuzzBtn.addActionListener(e -> openBatch());
-        btnBar.add(fuzzBtn);
-
-        JButton crescendoBtn = actionButton("Crescendo", PINK);
-        crescendoBtn.addActionListener(e -> openCrescendo());
-        btnBar.add(crescendoBtn);
+        JButton attackBtn = actionButton("Attack ▾", ORANGE);
+        attackBtn.addActionListener(e -> showAttackMenu(attackBtn));
+        btnBar.add(attackBtn);
 
         multiTurnBtn = actionButton("Multi-turn: OFF", MUTED);
         multiTurnBtn.addActionListener(e -> toggleMultiTurn());
         btnBar.add(multiTurnBtn);
+
+        JButton clearBtn = actionButton("Clear", MUTED);
+        clearBtn.addActionListener(e -> clearAll());
+        btnBar.add(clearBtn);
 
         turnCountLabel = new JLabel("0 turns");
         turnCountLabel.setFont(new Font("Monospaced", Font.ITALIC, Math.max(BASE_SIZE - 2, 10)));
@@ -402,30 +381,25 @@ public class PSPanel extends JPanel {
 
         multiTurnBtn.putClientProperty("clearConvoBtn", clearConvoBtn);
 
-        JButton saveSlotBtn = actionButton("Save Slot", ACCENT);
-        saveSlotBtn.addActionListener(e -> saveCurrentSlot());
-        btnBar.add(saveSlotBtn);
-
-        compareBtn = actionButton("Compare", GREEN);
-        compareBtn.setEnabled(false);
-        compareBtn.addActionListener(e -> openCompareDialog());
-        btnBar.add(compareBtn);
-
-        slotCountLabel = new JLabel("0 slots");
-        slotCountLabel.setFont(new Font("Monospaced", Font.ITALIC, Math.max(BASE_SIZE - 2, 10)));
-        slotCountLabel.setForeground(MUTED);
-        btnBar.add(slotCountLabel);
-
-
         // â"€â"€ Response area â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
         JPanel responsePanel = panel(BG, new BorderLayout(0, 4));
         responsePanel.setBorder(BorderFactory.createEmptyBorder(0, 14, 14, 14));
         JPanel respHeader = panel(BG, new BorderLayout());
         respHeader.add(label("Response:", FG), BorderLayout.WEST);
+        JPanel respHeaderRight = panel(BG, new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        JButton inlineCopyBtn = smallButton("Copy");
+        inlineCopyBtn.setForeground(FG);
+        inlineCopyBtn.addActionListener(e -> copyResponse());
+        JButton inlineDecodeBtn = smallButton("Decode");
+        inlineDecodeBtn.setForeground(ORANGE);
+        inlineDecodeBtn.addActionListener(e -> openDecodeWindow());
         respTokenLabel = new JLabel("");
         respTokenLabel.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 3, 9)));
         respTokenLabel.setForeground(MUTED);
-        respHeader.add(respTokenLabel, BorderLayout.EAST);
+        respHeaderRight.add(inlineCopyBtn);
+        respHeaderRight.add(inlineDecodeBtn);
+        respHeaderRight.add(respTokenLabel);
+        respHeader.add(respHeaderRight, BorderLayout.EAST);
         responsePanel.add(respHeader, BorderLayout.NORTH);
 
         responsePane = new JTextPane();
@@ -879,50 +853,6 @@ public class PSPanel extends JPanel {
         crescendoDialog.toFront();
     }
 
-    // â"€â"€ Endpoint slots & compare â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-
-    private void saveCurrentSlot() {
-        if (currentRequest == null) { showInfo("Load a request first."); return; }
-        String url         = urlField.getText().trim();
-        String defaultName = extractHostname(url);
-        String name = (String) JOptionPane.showInputDialog(
-                this, "Slot name (max 4 slots):", "Save Endpoint Slot",
-                JOptionPane.PLAIN_MESSAGE, null, null, defaultName);
-        if (name == null || name.isBlank()) return;
-        String trimmed = name.trim();
-        slots.removeIf(s -> trimmed.equalsIgnoreCase(s.name));
-        if (slots.size() >= 4) {
-            JOptionPane.showMessageDialog(this,
-                    "Maximum 4 slots reached. Use an existing slot name to overwrite it.",
-                    "Slots Full", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-        slots.add(new EndpointSlot(trimmed, url, currentRequest.method(),
-                fieldNameInput.getText().trim(), currentRequest, currentProxyItem, currentSessionId));
-        updateSlotLabel();
-        showInfo("Saved slot: " + trimmed + "  (" + slots.size() + " total)");
-    }
-
-    private void updateSlotLabel() {
-        int n = slots.size();
-        slotCountLabel.setText(n + " slot" + (n == 1 ? "" : "s"));
-        slotCountLabel.setForeground(n > 0 ? ACCENT : MUTED);
-        compareBtn.setEnabled(n >= 2);
-    }
-
-    private String extractHostname(String url) {
-        try { return new java.net.URI(url).getHost(); } catch (Exception e) { return "slot"; }
-    }
-
-    private void openCompareDialog() {
-        List<EndpointSlot> loaded = new ArrayList<>();
-        for (EndpointSlot s : slots) { if (s.hasRequest()) loaded.add(s); }
-        if (loaded.size() < 2) { showInfo("Need at least 2 saved slots to compare."); return; }
-        String msg = messageArea.getText().trim();
-        if (msg.isEmpty()) { showInfo("Enter a message to send for comparison."); return; }
-        new CompareDialog(this, api, store, loaded, msg, activeModifier).setVisible(true);
-    }
-
     // â"€â"€ Auxiliary actions â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     private PayloadBrowserDialog payloadBrowser;
@@ -935,9 +865,33 @@ public class PSPanel extends JPanel {
         payloadBrowser.toFront();
     }
 
-    private void showProbesMenu(JButton anchor) {
+    private void showAttackMenu(JButton anchor) {
         JPopupMenu menu = new JPopupMenu();
         menu.setBackground(SURFACE);
+
+        // ── Batch Send ──────────────────────────────────────────────────────
+        JMenuItem batchItem = new JMenuItem("Batch Send");
+        batchItem.setBackground(SURFACE);
+        batchItem.setForeground(ORANGE);
+        batchItem.setFont(MONO);
+        batchItem.addActionListener(e -> openBatch());
+        menu.add(batchItem);
+
+        // ── Crescendo Sequence ───────────────────────────────────────────────
+        JMenuItem crescItem = new JMenuItem("Crescendo Sequence");
+        crescItem.setBackground(SURFACE);
+        crescItem.setForeground(PINK);
+        crescItem.setFont(MONO);
+        crescItem.addActionListener(e -> openCrescendo());
+        menu.add(crescItem);
+
+        menu.addSeparator();
+
+        // ── Probes submenu ───────────────────────────────────────────────────
+        JMenu probesMenu = new JMenu("Probes");
+        probesMenu.setBackground(SURFACE);
+        probesMenu.setForeground(PINK);
+        probesMenu.setFont(MONO);
 
         java.util.List<SavedProbes.Probe> probes = SavedProbes.getAll();
         if (probes.isEmpty()) {
@@ -946,7 +900,7 @@ public class PSPanel extends JPanel {
             empty.setForeground(MUTED);
             empty.setFont(MONO);
             empty.setEnabled(false);
-            menu.add(empty);
+            probesMenu.add(empty);
         } else {
             for (int i = 0; i < probes.size(); i++) {
                 final int idx = i;
@@ -959,7 +913,6 @@ public class PSPanel extends JPanel {
                     messageArea.setText(p.text);
                     messageArea.requestFocus();
                 });
-                // Right-click on item to delete
                 item.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override public void mousePressed(java.awt.event.MouseEvent e) {
                         if (SwingUtilities.isRightMouseButton(e)) {
@@ -971,17 +924,17 @@ public class PSPanel extends JPanel {
                         }
                     }
                 });
-                menu.add(item);
+                probesMenu.add(item);
             }
         }
-
-        menu.addSeparator();
-        JMenuItem saveItem = new JMenuItem("Save current message as probe...");
-        saveItem.setBackground(SURFACE);
-        saveItem.setForeground(ACCENT);
-        saveItem.setFont(MONO);
-        saveItem.addActionListener(e -> saveCurrentProbe());
-        menu.add(saveItem);
+        probesMenu.addSeparator();
+        JMenuItem saveProbeItem = new JMenuItem("Save current message as probe...");
+        saveProbeItem.setBackground(SURFACE);
+        saveProbeItem.setForeground(ACCENT);
+        saveProbeItem.setFont(MONO);
+        saveProbeItem.addActionListener(e -> saveCurrentProbe());
+        probesMenu.add(saveProbeItem);
+        menu.add(probesMenu);
 
         menu.show(anchor, 0, anchor.getHeight());
     }
@@ -1051,7 +1004,6 @@ public class PSPanel extends JPanel {
         HttpRequest         savedReq     = currentRequest;
         HttpRequestResponse savedProxy   = currentProxyItem;
         List<Map<String,String>> savedTurns = new ArrayList<>(conversationTurns);
-        List<EndpointSlot>       savedSlots = new ArrayList<>(slots);
 
         // Apply new palette to the shared static fields and rebuild
         Theme.save(t);
@@ -1083,11 +1035,6 @@ public class PSPanel extends JPanel {
         conversationTurns.addAll(savedTurns);
         if (wasMTOn) toggleMultiTurn();
         updateTurnLabel();
-
-        // Restore endpoint slots
-        slots.clear();
-        slots.addAll(savedSlots);
-        updateSlotLabel();
 
         // Refresh history with new colors
         historyPanel.refresh();

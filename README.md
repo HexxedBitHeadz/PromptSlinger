@@ -4,24 +4,15 @@ A Burp Suite extension for AI/LLM endpoint security testing. Built on the Montoy
 
 ---
 
-## Requirements
-
-- Burp Suite Professional or Community Edition (2023.12.1+)
-- Java 17+
-
----
-
 ## Installation
 
 ### Option A — Download the pre-built JAR (easiest)
 
 1. Go to the [Releases](../../releases) page
-2. Download `promptslinger-1.0.5.jar`
+2. Download `promptslinger.jar`
 3. In Burp Suite: **Extensions → Add → Select JAR**
 
 ### Option B — Build from source
-
-**Prerequisites:** Java 17+, Maven 3.8+
 
 ```bash
 git clone https://github.com/HexxedBitHeadz/PromptSlinger.git
@@ -29,7 +20,7 @@ cd PromptSlinger/PromptSlinger
 mvn clean package
 ```
 
-The JAR will be at `target/promptslinger-1.0.5.jar`. Load it in Burp: **Extensions → Add → Select JAR**
+The JAR will be at `target/promptslinger.jar`. Load it in Burp: **Extensions → Add → Select JAR**
 
 ![Installation](docs/1._install.gif)
 

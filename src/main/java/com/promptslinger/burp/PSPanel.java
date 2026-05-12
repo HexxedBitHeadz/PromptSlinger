@@ -101,7 +101,7 @@ public class PSPanel extends JPanel {
     // â"€â"€ UI components â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     private JLabel     methodLabel;
     private JTextField urlField;
-    private JLabel     sessionLabel;
+    private JTextField sessionLabel;
     private JTextField fieldNameInput;
     JTextArea  messageArea;
     private JCheckBox[]modifierBoxes;
@@ -269,9 +269,14 @@ public class PSPanel extends JPanel {
         fieldRow.add(autoBtn);
 
         fieldRow.add(Box.createHorizontalStrut(20));
-        sessionLabel = new JLabel("Session ID: none");
-        sessionLabel.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE - 1));
-        sessionLabel.setForeground(MUTED);
+        sessionLabel = new JTextField(20);
+        style(sessionLabel);
+        sessionLabel.setForeground(ACCENT);
+        sessionLabel.setToolTipText("Session ID — auto-filled from responses, or type one manually");
+        fieldRow.add(new JLabel("Session ID: ") {{
+            setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE - 1));
+            setForeground(MUTED);
+        }});
         fieldRow.add(sessionLabel);
         fieldRow.add(Box.createHorizontalStrut(6));
         JButton clearSessBtn = smallButton("✕ clear session");
@@ -555,8 +560,9 @@ public class PSPanel extends JPanel {
                 injectAtPath(root, fieldName, finalMessage);
                 on.put("stream", false);
                 RequestSanitizer.stripOrchestrationFields(on);
-                if (currentSessionId != null)
-                    on.put("session_id", currentSessionId);
+                String effectiveSessionId = sessionLabel.getText().trim();
+                if (!effectiveSessionId.isEmpty())
+                    on.put("session_id", effectiveSessionId);
 
                 // Inject messages array for multi-turn mode
                 if (convoSnapshot != null) {
@@ -780,14 +786,14 @@ public class PSPanel extends JPanel {
 
     private void updateSession(String sid) {
         currentSessionId = sid;
-        sessionLabel.setText("Session ID: " + sid.substring(0, Math.min(36, sid.length())));
+        sessionLabel.setText(sid);
         sessionLabel.setForeground(ACCENT);
     }
 
     private void clearSession() {
         currentSessionId = null;
-        sessionLabel.setText("Session ID: none");
-        sessionLabel.setForeground(MUTED);
+        sessionLabel.setText("");
+        sessionLabel.setForeground(ACCENT);
     }
 
     // â"€â"€ Multi-turn conversation â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -998,7 +1004,7 @@ public class PSPanel extends JPanel {
         String              savedLastRsp = lastResponseText;
         String              savedUrl     = urlField     != null ? urlField.getText()     : "";
         String              savedMethod  = methodLabel  != null ? methodLabel.getText()  : "...";
-        String              savedSession = currentSessionId;
+        String              savedSession = sessionLabel != null ? sessionLabel.getText().trim() : null;
         String              savedMod     = activeModifier;
         boolean             wasMTOn      = multiTurnMode;
         HttpRequest         savedReq     = currentRequest;
@@ -1025,7 +1031,7 @@ public class PSPanel extends JPanel {
         }
 
         // Restore session, message, modifier
-        if (savedSession != null) updateSession(savedSession);
+        if (savedSession != null && !savedSession.isEmpty()) updateSession(savedSession);
         if (!savedMsg.isEmpty())  messageArea.setText(savedMsg);
         lastResponseText = savedLastRsp;
         if (savedMod != null)     toggleModifier(savedMod);

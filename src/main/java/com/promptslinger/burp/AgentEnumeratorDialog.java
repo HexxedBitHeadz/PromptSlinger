@@ -115,6 +115,9 @@ public class AgentEnumeratorDialog extends JDialog {
         "/.well-known/webfinger",
         "/.well-known/openid-configuration",
         // RAG — vector search / retrieval
+        "/ask",
+        "/api/ask",
+        "/v1/ask",
         "/query",
         "/api/query",
         "/v1/query",
@@ -160,7 +163,7 @@ public class AgentEnumeratorDialog extends JDialog {
 
     // Built-in wordlist for fuzz mode (no leading slash, no prefix)
     private static final String[] BUILTIN_ENDPOINTS = {
-        "account", "accounts", "admin", "agent", "agent.json", "assistant",
+        "account", "accounts", "admin", "agent", "agent.json", "ask", "assistant",
         "auth", "billing", "chat", "chat/completions", "completions",
         "config", "configuration", "context",
         "data", "debug", "docs", "embeddings", "embed", "files", "generate",
@@ -466,8 +469,47 @@ public class AgentEnumeratorDialog extends JDialog {
     private void startScan() {
         String base = urlField.getText().trim();
         if (base.isEmpty()) { setStatus("Enter a base URL first."); return; }
-        if (!base.startsWith("http://") && !base.startsWith("https://"))
-            base = "https://" + base;
+        if (!base.startsWith("http://") && !base.startsWith("https://")) {
+            JRadioButton httpBtn  = new JRadioButton("http://");
+            JRadioButton httpsBtn = new JRadioButton("https://");
+            httpBtn.setSelected(true);
+            ButtonGroup grp = new ButtonGroup();
+            grp.add(httpBtn); grp.add(httpsBtn);
+
+            JPanel inner = new JPanel(new GridBagLayout());
+            inner.setBackground(BG);
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(4, 4, 4, 4);
+            gc.anchor = GridBagConstraints.WEST;
+
+            JLabel msg = new JLabel("No scheme detected in \"" + base + "\".");
+            msg.setForeground(FG);
+            gc.gridx = 0; gc.gridy = 0; gc.gridwidth = 2;
+            inner.add(msg, gc);
+
+            JLabel hint = new JLabel("Choose a scheme or cancel to edit the URL manually:");
+            hint.setForeground(MUTED);
+            gc.gridy = 1;
+            inner.add(hint, gc);
+
+            gc.gridy = 2; gc.gridwidth = 1;
+            httpBtn.setBackground(BG);  httpBtn.setForeground(FG);
+            httpsBtn.setBackground(BG); httpsBtn.setForeground(FG);
+            inner.add(httpBtn,  gc);
+            gc.gridx = 1;
+            inner.add(httpsBtn, gc);
+
+            int result = JOptionPane.showConfirmDialog(
+                    this, inner, "Missing Scheme",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+            if (result != JOptionPane.OK_OPTION) {
+                urlField.requestFocusInWindow();
+                return;
+            }
+            base = (httpBtn.isSelected() ? "http://" : "https://") + base;
+            urlField.setText(base);
+        }
         if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
 
         allRows.clear();
@@ -746,7 +788,7 @@ public class AgentEnumeratorDialog extends JDialog {
             if (props == null || !props.isObject()) return null;
 
             // Prefer known names in priority order, fall back to first property
-            for (String candidate : new String[]{"message", "query", "prompt", "input", "text", "content"})
+            for (String candidate : new String[]{"message", "query", "prompt", "input", "text", "content", "question", "ask", "q"})
                 if (props.has(candidate)) return candidate;
             java.util.Iterator<String> names = props.fieldNames();
             return names.hasNext() ? names.next() : null;
@@ -765,7 +807,7 @@ public class AgentEnumeratorDialog extends JDialog {
             String  path    = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
             HttpService svc = HttpService.httpService(host, port, secure);
 
-            for (String candidate : new String[]{"message", "query", "prompt", "input", "text", "content"}) {
+            for (String candidate : new String[]{"message", "query", "prompt", "input", "text", "content", "question", "ask", "q"}) {
                 String body = "{\"" + candidate + "\": \"test\"}";
                 String rawReq = "POST " + path + " HTTP/1.1\r\n"
                         + "Host: " + hostHdr + "\r\n"
@@ -780,11 +822,13 @@ public class AgentEnumeratorDialog extends JDialog {
                 int    status   = rr.response().statusCode();
                 String respBody = rr.response().bodyToString();
                 // 422 = FastAPI validation error (wrong/missing field) — skip
-                // "error" key in JSON = application-level rejection — skip
                 if (status == 422) continue;
                 try {
                     JsonNode node = MAPPER.readTree(respBody);
+                    // "error" key = application-level rejection
                     if (node.has("error")) continue;
+                    // "detail" key = FastAPI validation error returned as 200 — skip
+                    if (node.has("detail")) continue;
                 } catch (Exception ignored) {}
                 return candidate;
             }

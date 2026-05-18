@@ -261,7 +261,28 @@ public class PSPanel extends JPanel {
         fieldRow.add(Box.createHorizontalStrut(8));
         JButton autoBtn = smallButton("Auto-detect");
         autoBtn.addActionListener(e -> {
-            if (currentRequest != null) {
+            if (currentRequest == null) return;
+            String urlNow = urlField.getText().trim();
+            if (!urlNow.isEmpty()) {
+                autoBtn.setEnabled(false);
+                new Thread(() -> {
+                    try {
+                        String probed = liveProbeField(urlNow);
+                        String result = probed != null ? probed : autoDetectField(currentRequest);
+                        if (result != null) {
+                            final String r = result;
+                            SwingUtilities.invokeLater(() -> {
+                                fieldNameInput.setText(r);
+                                autoBtn.setEnabled(true);
+                            });
+                        } else {
+                            SwingUtilities.invokeLater(() -> autoBtn.setEnabled(true));
+                        }
+                    } catch (Exception ex) {
+                        SwingUtilities.invokeLater(() -> autoBtn.setEnabled(true));
+                    }
+                }, "promptslinger-auto-detect").start();
+            } else {
                 String f = autoDetectField(currentRequest);
                 if (f != null) fieldNameInput.setText(f);
             }
@@ -784,7 +805,7 @@ public class PSPanel extends JPanel {
 
     // â"€â"€ Session management â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-    private void updateSession(String sid) {
+    void updateSession(String sid) {
         currentSessionId = sid;
         sessionLabel.setText(sid);
         sessionLabel.setForeground(ACCENT);
@@ -1070,6 +1091,42 @@ public class PSPanel extends JPanel {
     }
 
     // â"€â"€ Field auto-detection â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+
+    private String liveProbeField(String targetUrl) {
+        try {
+            java.net.URI uri = new java.net.URI(targetUrl);
+            String host    = uri.getHost();
+            int    port    = uri.getPort() == -1
+                    ? (uri.getScheme().equalsIgnoreCase("https") ? 443 : 80) : uri.getPort();
+            boolean secure = uri.getScheme().equalsIgnoreCase("https");
+            String hostHdr = (port == 80 || port == 443) ? host : host + ":" + port;
+            String path    = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+            HttpService svc = HttpService.httpService(host, port, secure);
+
+            for (String candidate : new String[]{"message", "query", "prompt", "input", "text",
+                                                  "content", "question", "ask", "q", "user_input"}) {
+                String body   = "{\"" + candidate + "\": \"test\"}";
+                String rawReq = "POST " + path + " HTTP/1.1\r\n"
+                        + "Host: " + hostHdr + "\r\n"
+                        + "Content-Type: application/json\r\n"
+                        + "Accept: application/json\r\n"
+                        + "Content-Length: " + body.getBytes().length + "\r\n"
+                        + "Connection: close\r\n\r\n"
+                        + body;
+                HttpRequestResponse rr = api.http().sendRequest(HttpRequest.httpRequest(svc, rawReq));
+                if (rr.response() == null) continue;
+                int    status   = rr.response().statusCode();
+                String respBody = rr.response().bodyToString();
+                if (status == 422) continue;
+                try {
+                    JsonNode node = mapper.readTree(respBody);
+                    if (node.has("error") || node.has("detail")) continue;
+                } catch (Exception ignored) {}
+                return candidate;
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
 
     private String autoDetectField(HttpRequest request) {
         String[] candidates = {"message", "prompt", "query", "input", "text",

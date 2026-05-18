@@ -1,6 +1,8 @@
 package com.promptslinger.burp;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionEvent;
 import java.awt.*;
 import java.awt.event.*;
@@ -13,6 +15,7 @@ public class InlinePayloadPanel extends JPanel {
     private final PSPanel owner;
 
     private final JComboBox<String>                      catCombo    = new JComboBox<>();
+    private final JTextField                             searchField = new JTextField();
     private final DefaultListModel<PayloadLibrary.Payload> payModel  = new DefaultListModel<>();
     private final JList<PayloadLibrary.Payload>          payList     = new JList<>(payModel);
     private final JTextArea                              previewArea = new JTextArea(3, 0);
@@ -46,12 +49,36 @@ public class InlinePayloadPanel extends JPanel {
         addBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         addBtn.addActionListener(e -> addCustomPayload());
 
+        searchField.setBackground(ENTRY_BG);
+        searchField.setForeground(FG);
+        searchField.setCaretColor(FG);
+        searchField.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 2, 10)));
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(SURFACE, 1),
+                BorderFactory.createEmptyBorder(3, 6, 3, 6)));
+        searchField.putClientProperty("JTextField.placeholderText", "Search payloads...");
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e)  { applyFilter(); }
+            public void removeUpdate(DocumentEvent e)  { applyFilter(); }
+            public void changedUpdate(DocumentEvent e) { applyFilter(); }
+        });
+
         JPanel topBar = new JPanel(new BorderLayout(4, 0));
         topBar.setBackground(BG);
         topBar.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-        topBar.add(catCombo, BorderLayout.CENTER);
-        topBar.add(addBtn,   BorderLayout.EAST);
-        add(topBar, BorderLayout.NORTH);
+        topBar.add(catCombo,     BorderLayout.CENTER);
+        topBar.add(addBtn,       BorderLayout.EAST);
+
+        JPanel searchBar = new JPanel(new BorderLayout(4, 0));
+        searchBar.setBackground(BG);
+        searchBar.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
+        searchBar.add(searchField, BorderLayout.CENTER);
+
+        JPanel northPanel = new JPanel(new BorderLayout());
+        northPanel.setBackground(BG);
+        northPanel.add(topBar,    BorderLayout.NORTH);
+        northPanel.add(searchBar, BorderLayout.SOUTH);
+        add(northPanel, BorderLayout.NORTH);
 
         // Center: payload list
         payList.setBackground(SURFACE);
@@ -128,12 +155,31 @@ public class InlinePayloadPanel extends JPanel {
     }
 
     private void onCategorySelected() {
+        if (!searchField.getText().trim().isEmpty()) return; // search overrides category
         String cat = (String) catCombo.getSelectedItem();
         payModel.clear();
         previewArea.setText("");
         if (cat == null) return;
         List<PayloadLibrary.Payload> payloads = PayloadLibrary.getByCategory(cat);
         for (PayloadLibrary.Payload p : payloads) payModel.addElement(p);
+        if (!payModel.isEmpty()) payList.setSelectedIndex(0);
+    }
+
+    private void applyFilter() {
+        String query = searchField.getText().trim().toLowerCase();
+        payModel.clear();
+        previewArea.setText("");
+        if (query.isEmpty()) {
+            onCategorySelected();
+            return;
+        }
+        for (PayloadLibrary.Payload p : PayloadLibrary.getAll()) {
+            if (p.name.toLowerCase().contains(query)
+                    || p.category.toLowerCase().contains(query)
+                    || p.text.toLowerCase().contains(query)) {
+                payModel.addElement(p);
+            }
+        }
         if (!payModel.isEmpty()) payList.setSelectedIndex(0);
     }
 

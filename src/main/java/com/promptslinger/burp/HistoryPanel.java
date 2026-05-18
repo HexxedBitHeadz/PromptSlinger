@@ -195,7 +195,6 @@ public class HistoryPanel extends JPanel {
         });
         detail.add(noteEntry, g);
 
-        g.gridy = 6; g.weighty = 0;
         g.gridy = 7; g.weighty = 0;
         JButton copyRespBtn = new JButton("Copy Response");
         copyRespBtn.setBackground(SURFACE);
@@ -241,14 +240,17 @@ public class HistoryPanel extends JPanel {
     }
 
     private void applyFilter() {
-        int selected = histList.getSelectedIndex();
+        HistoryEntry selectedEntry = histList.getSelectedValue();
         String query = searchField != null ? searchField.getText().trim().toLowerCase() : "";
         listModel.clear();
         for (HistoryEntry e : allEntries) {
             if (query.isEmpty() || matchesSearch(e, query)) listModel.addElement(e);
         }
-        if (selected >= 0 && selected < listModel.size()) histList.setSelectedIndex(selected);
-        else if (!listModel.isEmpty()) histList.setSelectedIndex(0);
+        if (selectedEntry != null) {
+            int idx = listModel.indexOf(selectedEntry);
+            if (idx >= 0) { histList.setSelectedIndex(idx); return; }
+        }
+        if (!listModel.isEmpty()) histList.setSelectedIndex(0);
     }
 
     private boolean matchesSearch(HistoryEntry e, String q) {
@@ -381,6 +383,7 @@ public class HistoryPanel extends JPanel {
         if (confirm == JOptionPane.YES_OPTION) {
             store.clearAll();
             refresh();
+            msgArea.setText("");
             respArea.setText("");
             noteEntry.setText("");
         }

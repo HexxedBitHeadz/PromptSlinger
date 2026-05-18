@@ -37,7 +37,7 @@ public class DecodeWindow extends JDialog {
 
         // â”€â”€ Title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         JLabel title = new JLabel("Decode Response");
-        title.setFont(new Font("Monospaced", Font.BOLD, 13));
+        title.setFont(new Font("Monospaced", Font.BOLD, BASE_SIZE));
         title.setForeground(ACCENT);
         title.setBorder(BorderFactory.createEmptyBorder(10, 14, 2, 14));
         add(title, BorderLayout.NORTH);
@@ -64,7 +64,7 @@ public class DecodeWindow extends JDialog {
 
         JLabel tryLabel = new JLabel("Try:");
         tryLabel.setForeground(MUTED);
-        tryLabel.setFont(new Font("Monospaced", Font.PLAIN, 10));
+        tryLabel.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 3, 9)));
         bar.add(tryLabel);
 
         for (DecoderEntry d : DECODERS) {
@@ -80,8 +80,7 @@ public class DecodeWindow extends JDialog {
             bar.add(btn);
         }
 
-        // Spacer
-        bar.add(Box.createHorizontalGlue());
+        bar.add(Box.createHorizontalStrut(20));
 
         JButton resetBtn = smallBtn("Reset");
         resetBtn.addActionListener(e -> {
@@ -125,7 +124,7 @@ public class DecodeWindow extends JDialog {
         JButton b = new JButton(text);
         b.setBackground(SURFACE);
         b.setForeground(FG);
-        b.setFont(new Font("Monospaced", Font.PLAIN, 10));
+        b.setFont(new Font("Monospaced", Font.PLAIN, Math.max(BASE_SIZE - 3, 9)));
         b.setFocusPainted(false);
         b.setBorderPainted(false);
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));

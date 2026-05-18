@@ -10,6 +10,9 @@ import static com.promptslinger.burp.PSPanel.*;
 
 public class DiffDialog extends JDialog {
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     private final HistoryStore store;
 
     private JComboBox<EntryItem> comboA;
@@ -61,11 +64,20 @@ public class DiffDialog extends JDialog {
         scrollA.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 1, SURFACE));
         scrollB.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, SURFACE));
 
-        // Sync scrolling between the two panes
-        scrollA.getVerticalScrollBar().addAdjustmentListener(e ->
-                scrollB.getVerticalScrollBar().setValue(e.getValue()));
-        scrollB.getVerticalScrollBar().addAdjustmentListener(e ->
-                scrollA.getVerticalScrollBar().setValue(e.getValue()));
+        // Sync scrolling between the two panes — guard prevents re-entrant feedback loop
+        boolean[] syncing = {false};
+        scrollA.getVerticalScrollBar().addAdjustmentListener(e -> {
+            if (syncing[0]) return;
+            syncing[0] = true;
+            scrollB.getVerticalScrollBar().setValue(e.getValue());
+            syncing[0] = false;
+        });
+        scrollB.getVerticalScrollBar().addAdjustmentListener(e -> {
+            if (syncing[0]) return;
+            syncing[0] = true;
+            scrollA.getVerticalScrollBar().setValue(e.getValue());
+            syncing[0] = false;
+        });
 
         JLabel headerA = paneHeader("A — removed / unique", REMOVED_BG);
         JLabel headerB = paneHeader("B — added / unique",   ADDED_BG);
@@ -154,8 +166,7 @@ public class DiffDialog extends JDialog {
         if (e.response == null) return "(no response)";
         // Try to extract the inner "response" value for cleaner diffs
         try {
-            com.fasterxml.jackson.databind.JsonNode root =
-                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(e.response);
+            com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(e.response);
             if (root.has("response")) return root.get("response").asText();
         } catch (Exception ignored) {}
         return e.response;

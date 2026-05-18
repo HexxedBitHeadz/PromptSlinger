@@ -49,7 +49,9 @@ public class HistoryStore {
     public synchronized void save() {
         try {
             MAPPER.writeValue(file, entries);
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+            System.err.println("[PromptSlinger] Failed to save history: " + e.getMessage());
+        }
     }
 
     private void load() {
@@ -57,6 +59,8 @@ public class HistoryStore {
         try {
             HistoryEntry[] loaded = MAPPER.readValue(file, HistoryEntry[].class);
             entries.addAll(Arrays.asList(loaded));
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+            System.err.println("[PromptSlinger] Failed to load history (file may be corrupt): " + e.getMessage());
+        }
     }
 }

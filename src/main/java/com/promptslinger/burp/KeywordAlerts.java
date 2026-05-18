@@ -57,13 +57,17 @@ public class KeywordAlerts {
         try {
             Files.createDirectories(FILE.getParent());
             MAPPER.writeValue(FILE.toFile(), alerts);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to save keyword alerts: " + e.getMessage());
+        }
     }
 
     private static void load() {
         try {
             if (Files.exists(FILE))
                 alerts = new ArrayList<>(Arrays.asList(MAPPER.readValue(FILE.toFile(), Alert[].class)));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to load keyword alerts: " + e.getMessage());
+        }
     }
 }

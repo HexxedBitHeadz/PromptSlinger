@@ -551,6 +551,7 @@ public class AgentEnumeratorDialog extends JDialog {
 
                 AtomicInteger completed = new AtomicInteger(0);
                 ExecutorService pool = Executors.newFixedThreadPool(20);
+                try {
 
                 for (int port : ports) {
                     boolean secure  = (port == basePort) ? baseSec : false;
@@ -575,16 +576,17 @@ public class AgentEnumeratorDialog extends JDialog {
                                         + "Connection: close\r\n"
                                         + "\r\n";
 
-                                HttpRequestResponse rr = api.http().sendRequest(
+                                HttpRequestResponse rr  = api.http().sendRequest(
                                         HttpRequest.httpRequest(fsvc, rawReq));
+                                var resp = rr.response();
 
-                                int    status  = rr.response() != null ? rr.response().statusCode() : 0;
-                                String body    = rr.response() != null ? rr.response().bodyToString() : "";
-                                String ct      = rr.response() != null
-                                        ? (rr.response().headerValue("Content-Type") != null
-                                           ? rr.response().headerValue("Content-Type") : "") : "";
-                                List<HttpHeader> hdrs = rr.response() != null
-                                        ? rr.response().headers() : List.of();
+                                int    status  = resp != null ? resp.statusCode() : 0;
+                                String body    = resp != null ? resp.bodyToString() : "";
+                                String ct      = resp != null
+                                        ? (resp.headerValue("Content-Type") != null
+                                           ? resp.headerValue("Content-Type") : "") : "";
+                                List<HttpHeader> hdrs = resp != null
+                                        ? resp.headers() : List.of();
                                 String headersAll = formatHeaders(hdrs);
                                 String aiHeaders  = extractAiHeaders(hdrs);
 
@@ -619,8 +621,11 @@ public class AgentEnumeratorDialog extends JDialog {
                     }
                 }
 
-                pool.shutdown();
-                pool.awaitTermination(5, TimeUnit.MINUTES);
+                } finally {
+                    pool.shutdown();
+                    try { pool.awaitTermination(5, TimeUnit.MINUTES); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    pool.shutdownNow();
+                }
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> setStatus("Error: " + ex.getMessage()));
             }
@@ -818,9 +823,10 @@ public class AgentEnumeratorDialog extends JDialog {
                         + body;
                 HttpRequestResponse rr = api.http().sendRequest(
                         HttpRequest.httpRequest(svc, rawReq));
-                if (rr.response() == null) continue;
-                int    status   = rr.response().statusCode();
-                String respBody = rr.response().bodyToString();
+                var resp = rr.response();
+                if (resp == null) continue;
+                int    status   = resp.statusCode();
+                String respBody = resp.bodyToString();
                 // 422 = FastAPI validation error (wrong/missing field) — skip
                 if (status == 422) continue;
                 try {
@@ -886,7 +892,7 @@ public class AgentEnumeratorDialog extends JDialog {
 
                 AtomicInteger completed = new AtomicInteger(0);
                 ExecutorService pool = Executors.newFixedThreadPool(20);
-
+                try {
                 for (String targetUrl : urlsToScan) {
                     if (stopped.get()) break;
                     pool.submit(() -> {
@@ -910,13 +916,14 @@ public class AgentEnumeratorDialog extends JDialog {
                                     + "Connection: close\r\n\r\n";
                             HttpRequestResponse rr = api.http().sendRequest(
                                     HttpRequest.httpRequest(svc, rawReq));
-                            int    status  = rr.response() != null ? rr.response().statusCode() : 0;
-                            String body    = rr.response() != null ? rr.response().bodyToString() : "";
-                            String ct      = rr.response() != null
-                                    ? (rr.response().headerValue("Content-Type") != null
-                                       ? rr.response().headerValue("Content-Type") : "") : "";
-                            List<HttpHeader> hdrs = rr.response() != null
-                                    ? rr.response().headers() : List.of();
+                            var resp = rr.response();
+                            int    status  = resp != null ? resp.statusCode() : 0;
+                            String body    = resp != null ? resp.bodyToString() : "";
+                            String ct      = resp != null
+                                    ? (resp.headerValue("Content-Type") != null
+                                       ? resp.headerValue("Content-Type") : "") : "";
+                            List<HttpHeader> hdrs = resp != null
+                                    ? resp.headers() : List.of();
                             String headersAll = formatHeaders(hdrs);
                             String aiHeaders  = extractAiHeaders(hdrs);
                             String type    = detectType(fp, body, ct, status);
@@ -941,8 +948,11 @@ public class AgentEnumeratorDialog extends JDialog {
                         }
                     });
                 }
-                pool.shutdown();
-                pool.awaitTermination(5, TimeUnit.MINUTES);
+                } finally {
+                    pool.shutdown();
+                    try { pool.awaitTermination(5, TimeUnit.MINUTES); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    pool.shutdownNow();
+                }
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> setStatus("Error: " + ex.getMessage()));
             }
@@ -1051,13 +1061,14 @@ public class AgentEnumeratorDialog extends JDialog {
                         + "Connection: close\r\n\r\n";
                 HttpRequestResponse rr = api.http().sendRequest(
                         HttpRequest.httpRequest(svc, rawReq));
+                var resp = rr.response();
 
-                int    status     = rr.response() != null ? rr.response().statusCode() : 0;
-                String body       = rr.response() != null ? rr.response().bodyToString() : "";
-                String ct         = rr.response() != null
-                        ? (rr.response().headerValue("Content-Type") != null
-                           ? rr.response().headerValue("Content-Type") : "") : "";
-                List<HttpHeader> hdrs = rr.response() != null ? rr.response().headers() : List.of();
+                int    status     = resp != null ? resp.statusCode() : 0;
+                String body       = resp != null ? resp.bodyToString() : "";
+                String ct         = resp != null
+                        ? (resp.headerValue("Content-Type") != null
+                           ? resp.headerValue("Content-Type") : "") : "";
+                List<HttpHeader> hdrs = resp != null ? resp.headers() : List.of();
                 String headersAll = formatHeaders(hdrs);
                 String aiHeaders  = extractAiHeaders(hdrs);
                 String type       = detectType(fp, body, ct, status);
@@ -1151,7 +1162,7 @@ public class AgentEnumeratorDialog extends JDialog {
 
                 AtomicInteger completed = new AtomicInteger(0);
                 ExecutorService pool = Executors.newFixedThreadPool(20);
-
+                try {
                 for (String targetUrl : urlsToScan) {
                     if (stopped.get()) break;
                     pool.submit(() -> {
@@ -1175,13 +1186,14 @@ public class AgentEnumeratorDialog extends JDialog {
                                     + "Connection: close\r\n\r\n";
                             HttpRequestResponse rr = api.http().sendRequest(
                                     HttpRequest.httpRequest(svc, rawReq));
-                            int    status  = rr.response() != null ? rr.response().statusCode() : 0;
-                            String body    = rr.response() != null ? rr.response().bodyToString() : "";
-                            String ct      = rr.response() != null
-                                    ? (rr.response().headerValue("Content-Type") != null
-                                       ? rr.response().headerValue("Content-Type") : "") : "";
-                            List<HttpHeader> hdrs = rr.response() != null
-                                    ? rr.response().headers() : List.of();
+                            var resp = rr.response();
+                            int    status  = resp != null ? resp.statusCode() : 0;
+                            String body    = resp != null ? resp.bodyToString() : "";
+                            String ct      = resp != null
+                                    ? (resp.headerValue("Content-Type") != null
+                                       ? resp.headerValue("Content-Type") : "") : "";
+                            List<HttpHeader> hdrs = resp != null
+                                    ? resp.headers() : List.of();
                             String headersAll = formatHeaders(hdrs);
                             String aiHeaders  = extractAiHeaders(hdrs);
                             String type    = detectType(fp, body, ct, status);
@@ -1208,8 +1220,11 @@ public class AgentEnumeratorDialog extends JDialog {
                         }
                     });
                 }
-                pool.shutdown();
-                pool.awaitTermination(5, TimeUnit.MINUTES);
+                } finally {
+                    pool.shutdown();
+                    try { pool.awaitTermination(5, TimeUnit.MINUTES); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    pool.shutdownNow();
+                }
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> setStatus("Error: " + ex.getMessage()));
             }

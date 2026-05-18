@@ -85,7 +85,9 @@ public class PSPanel extends JPanel {
         try {
             java.nio.file.Files.createDirectories(MARK_NAMES_FILE.getParent());
             java.nio.file.Files.writeString(MARK_NAMES_FILE, String.join("\n", MARK_KEYS));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to save mark names: " + e.getMessage());
+        }
     }
 
     static void loadMarkNames() {
@@ -95,7 +97,9 @@ public class PSPanel extends JPanel {
                 for (int i = 0; i < Math.min(loaded.length, MARK_KEYS.length); i++)
                     if (!loaded[i].isBlank()) MARK_KEYS[i] = loaded[i].trim();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to load mark names: " + e.getMessage());
+        }
     }
 
     // â"€â"€ UI components â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -561,7 +565,8 @@ public class PSPanel extends JPanel {
         sendBtn.setBackground(RED);
         sendBtn.setForeground(FG);
         sendBtn.setEnabled(true);
-        final String targetUrl = urlField.getText().trim();
+        final String targetUrl        = urlField.getText().trim();
+        final String effectiveSession = sessionLabel.getText().trim();
         showInfo("POST " + targetUrl + "\n\nWaiting…");
 
         final String capturedMessage = rawMessage;
@@ -581,9 +586,8 @@ public class PSPanel extends JPanel {
                 injectAtPath(root, fieldName, finalMessage);
                 on.put("stream", false);
                 RequestSanitizer.stripOrchestrationFields(on);
-                String effectiveSessionId = sessionLabel.getText().trim();
-                if (!effectiveSessionId.isEmpty())
-                    on.put("session_id", effectiveSessionId);
+                if (!effectiveSession.isEmpty())
+                    on.put("session_id", effectiveSession);
 
                 // Inject messages array for multi-turn mode
                 if (convoSnapshot != null) {
@@ -752,6 +756,10 @@ public class PSPanel extends JPanel {
                 doc.insertString(doc.getLength(), "RAW JSON\n",              labelStyle);
             }
 
+            if (pretty.length() >= 50_000) {
+                doc.insertString(doc.getLength(),
+                        "(response too large for syntax highlighting — plain text)\n", labelStyle);
+            }
             int jsonStart = doc.getLength();
             doc.insertString(jsonStart, pretty, mutedStyle);
             if (pretty.length() < 50_000) applyJsonHighlighting(doc, jsonStart, pretty);
@@ -1110,13 +1118,14 @@ public class PSPanel extends JPanel {
                         + "Host: " + hostHdr + "\r\n"
                         + "Content-Type: application/json\r\n"
                         + "Accept: application/json\r\n"
-                        + "Content-Length: " + body.getBytes().length + "\r\n"
+                        + "Content-Length: " + body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + "\r\n"
                         + "Connection: close\r\n\r\n"
                         + body;
-                HttpRequestResponse rr = api.http().sendRequest(HttpRequest.httpRequest(svc, rawReq));
-                if (rr.response() == null) continue;
-                int    status   = rr.response().statusCode();
-                String respBody = rr.response().bodyToString();
+                HttpRequestResponse rr   = api.http().sendRequest(HttpRequest.httpRequest(svc, rawReq));
+                var resp = rr.response();
+                if (resp == null) continue;
+                int    status   = resp.statusCode();
+                String respBody = resp.bodyToString();
                 if (status == 422) continue;
                 try {
                     JsonNode node = mapper.readTree(respBody);
@@ -1238,7 +1247,7 @@ public class PSPanel extends JPanel {
     }
 
     private static void style(JTextField tf) {
-        tf.setBackground(new Color(0x313244));
+        tf.setBackground(ENTRY_BG);
         tf.setForeground(GREEN);
         tf.setCaretColor(FG);
         tf.setFont(MONO);
@@ -1247,7 +1256,7 @@ public class PSPanel extends JPanel {
 
     private static JButton smallButton(String text) {
         JButton b = new JButton(text);
-        b.setBackground(new Color(0x313244));
+        b.setBackground(ENTRY_BG);
         b.setForeground(FG);
         b.setFont(new Font("Monospaced", Font.PLAIN, BASE_SIZE - 1));
         b.setFocusPainted(false);
@@ -1258,7 +1267,7 @@ public class PSPanel extends JPanel {
 
     private static JButton actionButton(String text, Color fg) {
         JButton b = new JButton(text);
-        b.setBackground(new Color(0x2a2a3d));
+        b.setBackground(SURFACE);
         b.setForeground(fg);
         b.setFont(MONO_BOLD);
         b.setFocusPainted(false);
@@ -1343,7 +1352,7 @@ public class PSPanel extends JPanel {
                     + "Host: " + hostHdr + "\r\n"
                     + "Content-Type: application/json\r\n"
                     + "Accept: application/json\r\n"
-                    + "Content-Length: " + body.getBytes().length + "\r\n"
+                    + "Content-Length: " + body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + "\r\n"
                     + "Connection: close\r\n"
                     + "\r\n"
                     + body;

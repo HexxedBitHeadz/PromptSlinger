@@ -19,6 +19,7 @@ public class InlinePayloadPanel extends JPanel {
     private final DefaultListModel<PayloadLibrary.Payload> payModel  = new DefaultListModel<>();
     private final JList<PayloadLibrary.Payload>          payList     = new JList<>(payModel);
     private final JTextArea                              previewArea = new JTextArea(3, 0);
+    private       String                                 lastLoadedPreviewText = "";
 
     public InlinePayloadPanel(PSPanel owner) {
         this.owner = owner;
@@ -159,6 +160,7 @@ public class InlinePayloadPanel extends JPanel {
         String cat = (String) catCombo.getSelectedItem();
         payModel.clear();
         previewArea.setText("");
+        lastLoadedPreviewText = "";
         if (cat == null) return;
         List<PayloadLibrary.Payload> payloads = PayloadLibrary.getByCategory(cat);
         for (PayloadLibrary.Payload p : payloads) payModel.addElement(p);
@@ -169,6 +171,7 @@ public class InlinePayloadPanel extends JPanel {
         String query = searchField.getText().trim().toLowerCase();
         payModel.clear();
         previewArea.setText("");
+        lastLoadedPreviewText = "";
         if (query.isEmpty()) {
             onCategorySelected();
             return;
@@ -187,8 +190,17 @@ public class InlinePayloadPanel extends JPanel {
         if (e.getValueIsAdjusting()) return;
         PayloadLibrary.Payload p = payList.getSelectedValue();
         if (p != null) {
+            String current = previewArea.getText();
+            if (!current.equals(lastLoadedPreviewText) && !current.isEmpty()) {
+                int choice = JOptionPane.showConfirmDialog(this,
+                        "You have unsaved edits in the preview. Discard them?",
+                        "Discard Changes", JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (choice != JOptionPane.OK_OPTION) return;
+            }
             previewArea.setText(p.text);
             previewArea.setCaretPosition(0);
+            lastLoadedPreviewText = p.text;
         }
     }
 
@@ -200,6 +212,7 @@ public class InlinePayloadPanel extends JPanel {
         owner.messageArea.setText(text);
         owner.messageArea.requestFocus();
         owner.messageArea.setCaretPosition(text.length());
+        lastLoadedPreviewText = text;
     }
 
     private void addCustomPayload() {

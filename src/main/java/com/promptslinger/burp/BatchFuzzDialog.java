@@ -483,8 +483,9 @@ public class BatchFuzzDialog extends JDialog {
                     try {
                         burp.api.montoya.http.message.HttpRequestResponse result =
                                 api.http().sendRequest(modified);
-                        rawResp    = result.response() != null ? result.response().bodyToString() : "(no response)";
-                        statusCode = result.response() != null ? result.response().statusCode()   : 0;
+                        var resp   = result.response();
+                        rawResp    = resp != null ? resp.bodyToString() : "(no response)";
+                        statusCode = resp != null ? resp.statusCode()   : 0;
                         // SSE assembled from buffered body
                         String sseText = SseParser.assemble(rawResp);
                         if (sseText != null && !sseText.isBlank()) rawResp = sseText;
@@ -567,13 +568,17 @@ public class BatchFuzzDialog extends JDialog {
                 startBtn.setEnabled(true);
                 stopBtn.setEnabled(false);
                 int done = tableModel.getRowCount();
-                setStatus("Done - " + done + " result" + (done == 1 ? "" : "s") + "  [Batch:" + batchId + "]");
-                if (historyPanel != null) historyPanel.refresh();
-                if (lastCapturedSessionId != null) {
-                    sessionCapturedLabel.setText("Session: " + lastCapturedSessionId);
-                    sessionCapturedLabel.setForeground(GREEN);
-                    continueBtn.setEnabled(true);
+                if (stopped.get()) {
+                    setStatus("Stopped after " + done + " result" + (done == 1 ? "" : "s"));
+                } else {
+                    setStatus("Done - " + done + " result" + (done == 1 ? "" : "s") + "  [Batch:" + batchId + "]");
+                    if (lastCapturedSessionId != null) {
+                        sessionCapturedLabel.setText("Session: " + lastCapturedSessionId);
+                        sessionCapturedLabel.setForeground(GREEN);
+                        continueBtn.setEnabled(true);
+                    }
                 }
+                if (historyPanel != null) historyPanel.refresh();
             });
         }, "promptslinger-batch");
         worker.setDaemon(true);
@@ -584,6 +589,9 @@ public class BatchFuzzDialog extends JDialog {
         stopped.set(true);
         if (worker != null) worker.interrupt();
         stopBtn.setEnabled(false);
+        continueBtn.setEnabled(false);
+        sessionCapturedLabel.setText("No session captured");
+        sessionCapturedLabel.setForeground(MUTED);
         setStatus("Stopping...");
     }
 

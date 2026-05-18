@@ -497,13 +497,17 @@ public class PayloadLibrary {
         try {
             Files.createDirectories(CUSTOM_FILE.getParent());
             MAPPER.writeValue(CUSTOM_FILE.toFile(), custom);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to save custom payloads: " + e.getMessage());
+        }
     }
 
     private static void loadCustom() {
         try {
             if (Files.exists(CUSTOM_FILE))
                 custom = new ArrayList<>(Arrays.asList(MAPPER.readValue(CUSTOM_FILE.toFile(), Payload[].class)));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to load custom payloads: " + e.getMessage());
+        }
     }
 }

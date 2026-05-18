@@ -108,6 +108,8 @@ public class Theme {
         try {
             Files.createDirectories(THEME_FILE.getParent());
             Files.writeString(THEME_FILE, t.name);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to save theme preference: " + e.getMessage());
+        }
     }
 }

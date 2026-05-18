@@ -22,6 +22,7 @@ public class PayloadBrowserDialog extends JDialog {
     private final JTextArea                              previewArea  = new JTextArea();
     private final JTextField                             searchField  = new JTextField();
     private final JButton                                deleteBtn    = btn("Delete", RED);
+    private       String                                 lastLoadedPreviewText = "";
 
     public PayloadBrowserDialog(PSPanel owner) {
         super(SwingUtilities.getWindowAncestor(owner), "Payload Library",
@@ -194,6 +195,7 @@ public class PayloadBrowserDialog extends JDialog {
         String query = searchField.getText().trim().toLowerCase();
         payModel.clear();
         previewArea.setText("");
+        lastLoadedPreviewText = "";
         if (query.isEmpty()) {
             String cat = catList.getSelectedValue();
             if (cat != null) {
@@ -218,6 +220,7 @@ public class PayloadBrowserDialog extends JDialog {
         String cat = catList.getSelectedValue();
         payModel.clear();
         previewArea.setText("");
+        lastLoadedPreviewText = "";
         if (cat == null) return;
         List<PayloadLibrary.Payload> payloads = PayloadLibrary.getByCategory(cat);
         for (PayloadLibrary.Payload p : payloads) payModel.addElement(p);
@@ -228,8 +231,22 @@ public class PayloadBrowserDialog extends JDialog {
     private void onPayloadSelected(ListSelectionEvent e) {
         if (e.getValueIsAdjusting()) return;
         PayloadLibrary.Payload p = payList.getSelectedValue();
-        previewArea.setText(p != null ? p.text : "");
-        previewArea.setCaretPosition(0);
+        if (p != null) {
+            String current = previewArea.getText();
+            if (!current.equals(lastLoadedPreviewText) && !current.isEmpty()) {
+                int choice = JOptionPane.showConfirmDialog(this,
+                        "You have unsaved edits in the preview. Discard them?",
+                        "Discard Changes", JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (choice != JOptionPane.OK_OPTION) return;
+            }
+            previewArea.setText(p.text);
+            previewArea.setCaretPosition(0);
+            lastLoadedPreviewText = p.text;
+        } else {
+            previewArea.setText("");
+            lastLoadedPreviewText = "";
+        }
     }
 
     // ── Actions ───────────────────────────────────────────────────────────────
@@ -240,6 +257,7 @@ public class PayloadBrowserDialog extends JDialog {
         owner.messageArea.setText(text);
         owner.messageArea.requestFocus();
         owner.messageArea.setCaretPosition(text.length());
+        lastLoadedPreviewText = text;
     }
 
     private void saveAsProbe() {

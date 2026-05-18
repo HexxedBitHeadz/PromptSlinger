@@ -46,13 +46,17 @@ public class SavedProbes {
         try {
             Files.createDirectories(FILE.getParent());
             MAPPER.writeValue(FILE.toFile(), probes);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to save probes: " + e.getMessage());
+        }
     }
 
     private static void load() {
         try {
             if (Files.exists(FILE))
                 probes = new ArrayList<>(Arrays.asList(MAPPER.readValue(FILE.toFile(), Probe[].class)));
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[PromptSlinger] Failed to load probes: " + e.getMessage());
+        }
     }
 }
